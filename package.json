@@ -1,11 +1,11 @@
 {
-  "name": "antigravity-usage",
-  "version": "0.2.9",
-  "description": "CLI tool to check Antigravity model quota via Google Cloud Code API",
+  "name": "claude-usage",
+  "version": "0.3.0",
+  "description": "CLI to track Claude / Claude Code usage and plan quota, with Auto Wakeup on macOS, Linux, and Windows",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "antigravity-usage": "dist/index.js"
+    "claude-usage": "dist/index.js"
   },
   "scripts": {
     "build": "tsup",
@@ -17,10 +17,12 @@
     "prepublishOnly": "npm run build"
   },
   "keywords": [
-    "antigravity",
+    "claude",
+    "claude-code",
+    "anthropic",
     "quota",
-    "cli",
-    "google-cloud-code"
+    "usage",
+    "cli"
   ],
   "author": "",
   "license": "MIT",

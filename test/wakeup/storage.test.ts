@@ -26,11 +26,11 @@ import { getDefaultConfig, type TriggerRecord, type WakeupConfig } from '../../s
 
 // Mock the env module to use temp directory
 vi.mock('../../src/core/env.js', () => ({
-  getConfigDir: () => '/tmp/antigravity-usage-test'
+  getConfigDir: () => '/tmp/claude-usage-test'
 }))
 
 describe('Wakeup Storage', () => {
-  const testDir = '/tmp/antigravity-usage-test/wakeup'
+  const testDir = '/tmp/claude-usage-test/wakeup'
   
   beforeEach(() => {
     // Clean up test directory

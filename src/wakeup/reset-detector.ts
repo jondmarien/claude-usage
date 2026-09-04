@@ -1,67 +1,76 @@
 /**
  * Reset detector for auto wake-up
- * 
- * Smart trigger logic:
- * - Triggers ALL available models from quota snapshot
- * - Triggers for ALL valid accounts
- * - Only triggers when model is "unused": 100% remaining AND ~5h until reset
+ *
+ * Detect unused Claude quota windows (session ~5h, weekly ~7d) and trigger
+ * the configured Claude models. Window IDs like "session" are never sent
+ * to the Messages API.
  */
 
 import { debug } from '../core/logger.js'
 import type { QuotaSnapshot, ModelQuotaInfo } from '../quota/types.js'
-import { 
-  loadWakeupConfig, 
-  loadResetState, 
+import {
+  getOrCreateConfig,
+  loadResetState,
   updateResetState
 } from './storage.js'
 import { getAccountManager } from '../accounts/manager.js'
 import { executeTrigger } from './trigger-service.js'
 import type { DetectionResult } from './types.js'
+import { DEFAULT_WAKEUP_MODELS } from '../claude/models.js'
 
 // Smart trigger thresholds
-const FULL_QUOTA_THRESHOLD = 99        // Consider "full" if >= 99%
-const RESET_TIME_MIN_HOURS = 4.5       // At least 4.5 hours until reset
-const RESET_TIME_MAX_HOURS = 5.5       // At most 5.5 hours until reset (catches the ~5h window)
-const RESET_TIME_MIN_MS = RESET_TIME_MIN_HOURS * 60 * 60 * 1000
-const RESET_TIME_MAX_MS = RESET_TIME_MAX_HOURS * 60 * 60 * 1000
+const FULL_QUOTA_THRESHOLD = 99
+const SESSION_RESET_MIN_HOURS = 4.5
+const SESSION_RESET_MAX_HOURS = 5.5
+const WEEKLY_RESET_MIN_HOURS = 6.5 * 24
+const WEEKLY_RESET_MAX_HOURS = 7.5 * 24
+
+function remainingAsPercent(value?: number): number | undefined {
+  if (value === undefined) return undefined
+  return value > 1 ? value : value * 100
+}
 
 // Cooldown between triggers for same model
 const DEFAULT_COOLDOWN_MS = 60 * 60 * 1000 // 1 hour (since we're looking at ~5h window)
 
 /**
- * Check if a model is "unused" and should be triggered
- * 
- * Unused = 100% quota remaining AND reset time is approximately 5 hours
- * (meaning the model hasn't been used this quota cycle)
+ * Check if a Claude limit looks freshly reset / unused.
+ *
+ * Session windows on Claude Code plans are typically ~5 hours.
+ * Weekly windows are ~7 days. We do not pretend weekly limits reset in 5 hours.
  */
 export function isModelUnused(model: ModelQuotaInfo): boolean {
-  // Must have remaining percentage data
-  if (model.remainingPercentage === undefined) {
+  if (model.windowKind === 'usage') {
+    return false
+  }
+
+  const remaining = remainingAsPercent(model.remainingPercentage)
+  if (remaining === undefined) {
     debug('reset-detector', `${model.modelId}: No remaining percentage data`)
     return false
   }
-  
-  // Check if quota is full (100% or very close)
-  if (model.remainingPercentage < FULL_QUOTA_THRESHOLD) {
-    debug('reset-detector', `${model.modelId}: Not full (${model.remainingPercentage}%)`)
+
+  if (remaining < FULL_QUOTA_THRESHOLD) {
+    debug('reset-detector', `${model.modelId}: Not full (${remaining}%)`)
     return false
   }
-  
-  // Must have time until reset data
+
   if (model.timeUntilResetMs === undefined) {
     debug('reset-detector', `${model.modelId}: No reset time data`)
     return false
   }
-  
-  // Check if reset time is in the ~5h window (4.5h to 5.5h)
-  // This means it just reset and hasn't been used
-  if (model.timeUntilResetMs < RESET_TIME_MIN_MS || model.timeUntilResetMs > RESET_TIME_MAX_MS) {
-    const hoursUntilReset = (model.timeUntilResetMs / (60 * 60 * 1000)).toFixed(1)
-    debug('reset-detector', `${model.modelId}: Reset time ${hoursUntilReset}h not in 4.5-5.5h window`)
+
+  const hoursUntilReset = model.timeUntilResetMs / (60 * 60 * 1000)
+  const weekly = model.windowKind === 'weekly' || model.windowKind === 'weekly_scoped'
+  const minHours = weekly ? WEEKLY_RESET_MIN_HOURS : SESSION_RESET_MIN_HOURS
+  const maxHours = weekly ? WEEKLY_RESET_MAX_HOURS : SESSION_RESET_MAX_HOURS
+
+  if (hoursUntilReset < minHours || hoursUntilReset > maxHours) {
+    debug('reset-detector', `${model.modelId}: Reset time ${hoursUntilReset.toFixed(1)}h not in unused window`)
     return false
   }
-  
-  debug('reset-detector', `${model.modelId}: UNUSED - 100% remaining, ~5h until reset`)
+
+  debug('reset-detector', `${model.modelId}: UNUSED - ${remaining}% remaining`)
   return true
 }
 
@@ -79,66 +88,97 @@ function getAllValidAccounts(): string[] {
 }
 
 /**
- * Detect unused models and trigger wake-up for all accounts
- * 
- * New smart logic:
- * 1. Check ALL models in the quota snapshot
- * 2. Find models that are "unused" (100% + ~5h reset)
- * 3. Trigger for ALL valid accounts
+ * Map unused Claude quota windows onto real Messages / Claude Code model IDs.
+ * Quota rows are session/weekly windows, not model names.
+ */
+export function modelsForUnusedWindows(
+  unused: ModelQuotaInfo[],
+  selectedModels: string[] = [...DEFAULT_WAKEUP_MODELS]
+): string[] {
+  const selected = selectedModels.length > 0 ? selectedModels : [...DEFAULT_WAKEUP_MODELS]
+  const wanted = new Set<string>()
+
+  for (const window of unused) {
+    const haystack = `${window.modelId} ${window.label}`.toLowerCase()
+    const scoped = window.windowKind === 'weekly_scoped' || haystack.includes('sonnet') || haystack.includes('opus')
+
+    if (scoped && haystack.includes('opus')) {
+      const opus = selected.filter(id => id.toLowerCase().includes('opus'))
+      if (opus.length > 0) {
+        opus.forEach(id => wanted.add(id))
+      } else {
+        wanted.add('claude-opus-5')
+      }
+      continue
+    }
+
+    if (scoped && haystack.includes('sonnet')) {
+      const sonnet = selected.filter(id => id.toLowerCase().includes('sonnet'))
+      if (sonnet.length > 0) {
+        sonnet.forEach(id => wanted.add(id))
+      } else {
+        wanted.add('claude-sonnet-5')
+      }
+      continue
+    }
+
+    selected.forEach(id => wanted.add(id))
+  }
+
+  return [...wanted]
+}
+
+/**
+ * Detect unused quota windows and trigger configured Claude models.
+ *
+ * Quota snapshots expose session/weekly windows, not Gemini-style model IDs.
+ * Only runs when wakeup is enabled in reset mode.
  */
 export async function detectResetAndTrigger(snapshot: QuotaSnapshot): Promise<DetectionResult> {
-  debug('reset-detector', 'Checking for unused models (smart trigger)')
-  
-  // Load config
-  const config = loadWakeupConfig()
-  
-  // Must be enabled
-  if (!config || !config.enabled) {
-    debug('reset-detector', 'Wakeup is not enabled')
+  debug('reset-detector', 'Checking for unused quota windows')
+
+  const config = getOrCreateConfig()
+
+  if (!config.enabled || !config.wakeOnReset) {
+    debug('reset-detector', 'Wakeup reset mode is not enabled')
     return { triggered: false, triggeredModels: [] }
   }
-  
-  // Get ALL valid accounts
+
   const accounts = getAllValidAccounts()
   if (accounts.length === 0) {
     debug('reset-detector', 'No valid accounts available')
     return { triggered: false, triggeredModels: [] }
   }
-  
+
   debug('reset-detector', `Found ${accounts.length} valid accounts`)
-  
-  // Load reset state for cooldown
+
   const resetState = loadResetState()
   const now = Date.now()
-  
-  // Find ALL unused models (check every model in snapshot)
-  const modelsToTrigger: string[] = []
-  
-  for (const model of snapshot.models) {
-    // Check if model is unused
-    if (!isModelUnused(model)) {
+  const unusedWindows: ModelQuotaInfo[] = []
+
+  for (const window of snapshot.models) {
+    if (!isModelUnused(window)) {
       continue
     }
-    
-    // Check cooldown (don't trigger same model too frequently)
-    const previousState = resetState[model.modelId]
+
+    const previousState = resetState[window.modelId]
     if (previousState) {
       const lastTriggered = new Date(previousState.lastTriggeredTime).getTime()
       const cooldownRemaining = DEFAULT_COOLDOWN_MS - (now - lastTriggered)
       if (cooldownRemaining > 0) {
-        debug('reset-detector', `${model.modelId}: In cooldown (${Math.round(cooldownRemaining / 60000)}min remaining)`)
+        debug('reset-detector', `${window.modelId}: In cooldown (${Math.round(cooldownRemaining / 60000)}min remaining)`)
         continue
       }
     }
-    
-    modelsToTrigger.push(model.modelId)
-    
-    // Update state to prevent re-triggering
-    updateResetState(model.modelId, model.resetTime || new Date().toISOString())
+
+    unusedWindows.push(window)
+    updateResetState(window.modelId, window.resetTime || new Date().toISOString())
   }
-  
+
+  const modelsToTrigger = modelsForUnusedWindows(unusedWindows, config.selectedModels)
+
   if (modelsToTrigger.length === 0) {
-    debug('reset-detector', 'No unused models to trigger')
+    debug('reset-detector', 'No unused windows to trigger')
     return { triggered: false, triggeredModels: [] }
   }
   

@@ -1,9 +1,11 @@
 /**
- * Custom error classes for antigravity-usage CLI
+ * Custom error classes for claude-usage CLI
  */
 
+import { CLI_NAME } from './env.js'
+
 export class NotLoggedInError extends Error {
-  constructor(message = 'Not logged in. Run: antigravity-usage login') {
+  constructor(message = `Not logged in. Run: ${CLI_NAME} login`) {
     super(message)
     this.name = 'NotLoggedInError'
   }
@@ -35,7 +37,7 @@ export class RateLimitError extends Error {
 
 export class APIError extends Error {
   statusCode?: number
-  
+
   constructor(message: string, statusCode?: number) {
     super(message)
     this.name = 'APIError'
@@ -44,13 +46,10 @@ export class APIError extends Error {
 }
 
 export class TokenRefreshError extends Error {
-  /** Original error that caused the refresh failure */
   cause?: Error
-  /** HTTP status code if available */
   statusCode?: number
-  /** Whether the error is retryable (network issues) vs permanent (invalid token) */
   isRetryable: boolean
-  
+
   constructor(
     message = 'Failed to refresh token. Please login again.',
     options?: {
@@ -63,11 +62,9 @@ export class TokenRefreshError extends Error {
     this.name = 'TokenRefreshError'
     this.cause = options?.cause
     this.statusCode = options?.statusCode
-    // Default: retryable unless we get a 400/401 (invalid_grant, etc.)
     this.isRetryable = options?.isRetryable ?? true
   }
-  
-  /** Get detailed error message including cause */
+
   getDetailedMessage(): string {
     let msg = this.message
     if (this.statusCode) {
@@ -80,31 +77,38 @@ export class TokenRefreshError extends Error {
   }
 }
 
-export class AntigravityNotRunningError extends Error {
-  constructor(message = 'Antigravity language server is not running. Please start Antigravity in your IDE.') {
+export class ClaudeDataNotFoundError extends Error {
+  constructor(message = 'No Claude Code session logs found. Use Claude Code at least once, or login to fetch live quota.') {
+    super(message)
+    this.name = 'ClaudeDataNotFoundError'
+  }
+}
+
+/** @deprecated Use ClaudeDataNotFoundError */
+export class AntigravityNotRunningError extends ClaudeDataNotFoundError {
+  constructor(message?: string) {
     super(message)
     this.name = 'AntigravityNotRunningError'
   }
 }
 
 export class LocalConnectionError extends Error {
-  constructor(message = 'Failed to connect to local Antigravity server.') {
+  constructor(message = 'Failed to read local Claude Code usage data.') {
     super(message)
     this.name = 'LocalConnectionError'
   }
 }
 
 export class PortDetectionError extends Error {
-  constructor(message = 'Could not detect Antigravity server port.') {
+  constructor(message = 'Could not find Claude Code usage data.') {
     super(message)
     this.name = 'PortDetectionError'
   }
 }
 
 export class NoAuthMethodAvailableError extends Error {
-  constructor(message = 'Unable to fetch quota: Antigravity is not running and you are not logged in.\n\nPlease do one of the following:\n  • Run Antigravity in your IDE (VSCode, etc.), or\n  • Login with: antigravity-usage login') {
+  constructor(message = `Unable to fetch usage: no Claude Code session logs found and you are not logged in.\n\nPlease do one of the following:\n  • Use Claude Code so local session logs exist under ~/.claude/projects, or\n  • Login with: ${CLI_NAME} login`) {
     super(message)
     this.name = 'NoAuthMethodAvailableError'
   }
 }
-

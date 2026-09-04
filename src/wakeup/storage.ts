@@ -14,6 +14,7 @@ import type {
   ModelMapping 
 } from './types.js'
 import { getDefaultConfig } from './types.js'
+import { DEFAULT_WAKEUP_MODELS, isLegacyAntigravityModel, isOutdatedClaudeModel, migrateWakeupModels } from '../claude/models.js'
 
 // Storage paths
 const WAKEUP_DIR_NAME = 'wakeup'
@@ -105,12 +106,19 @@ export function saveWakeupConfig(config: WakeupConfig): void {
 export function getOrCreateConfig(): WakeupConfig {
   const existing = loadWakeupConfig()
   if (existing) {
-    // Auto-migrate to new default models if selectedModels is empty
-    // This ensures both Claude and Gemini families (both quota groups) are triggered
-    if (!existing.selectedModels || existing.selectedModels.length === 0) {
-      existing.selectedModels = ['claude-sonnet-4-5', 'gemini-3-flash', 'gemini-3-pro-low']
+    // Migrate empty, Antigravity/Gemini, or outdated Claude 4.x model lists
+    if (
+      !existing.selectedModels ||
+      existing.selectedModels.length === 0 ||
+      existing.selectedModels.some(isLegacyAntigravityModel) ||
+      existing.selectedModels.some(isOutdatedClaudeModel)
+    ) {
+      existing.selectedModels = migrateWakeupModels(existing.selectedModels || [])
+      if (existing.selectedModels.length === 0) {
+        existing.selectedModels = [...DEFAULT_WAKEUP_MODELS]
+      }
       saveWakeupConfig(existing)
-      debug('wakeup-storage', 'Migrated config to new default models')
+      debug('wakeup-storage', 'Migrated wakeup models to current Claude IDs')
     }
     return existing
   }

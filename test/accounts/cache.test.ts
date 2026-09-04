@@ -68,7 +68,7 @@ describe('accounts/cache', () => {
     it('should save and load cache', () => {
       const snapshot: QuotaSnapshot = {
         timestamp: '2026-01-15T10:00:00Z',
-        method: 'google',
+        method: 'cloud',
         email: testEmail,
         models: [
           {
@@ -84,7 +84,7 @@ describe('accounts/cache', () => {
       const loaded = loadCache(testEmail)
       
       expect(loaded).not.toBeNull()
-      expect(loaded?.method).toBe('google')
+      expect(loaded?.method).toBe('cloud')
       expect(loaded?.email).toBe(testEmail)
       expect(loaded?.models.length).toBe(1)
       expect(loaded?.models[0].label).toBe('Test Model')

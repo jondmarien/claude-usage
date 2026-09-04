@@ -53,11 +53,11 @@ function formatCredits(credits: { used: number; limit: number } | null | undefin
 export function renderAccountsTable(accounts: AccountSummary[]): void {
   if (accounts.length === 0) {
     console.log('\n📭 No accounts found.')
-    console.log('\n💡 Run `antigravity-usage login` to add an account.\n')
+    console.log('\n💡 Run `claude-usage login` to add an account.\n')
     return
   }
 
-  console.log('\n📊 Antigravity Accounts')
+  console.log('\n📊 Claude Accounts')
   console.log('═'.repeat(60))
 
   const totalWidth = process.stdout.columns || 80
@@ -147,7 +147,7 @@ export interface RenderOptions {
 export function renderAllQuotaTable(results: AllAccountsQuotaResult[], options: RenderOptions = {}): void {
   if (results.length === 0) {
     console.log('\n📭 No accounts found.')
-    console.log('\n💡 Run `antigravity-usage login` to add an account.\n')
+    console.log('\n💡 Run `claude-usage login` to add an account.\n')
     return
   }
 

@@ -1,3 +1,5 @@
+> Historical plan for the original antigravity-usage / Google Cloud Code CLI. The product is now `claude-usage` (Claude Code transcripts + Claude OAuth usage). See README.md.
+
 ## Full development plan (TypeScript CLI `antigravity-usage`, cross‑platform, publish to npm, Google OAuth)
 
 ### Goal

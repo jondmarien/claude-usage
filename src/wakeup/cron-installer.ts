@@ -1,186 +1,201 @@
 /**
- * Cron installer for auto wake-up
- * Manages cron job installation for macOS/Linux
+ * Scheduler installer for auto wake-up
+ * - macOS/Linux: crontab
+ * - Windows: Task Scheduler via schtasks
  */
 
-import { execSync, exec } from 'child_process'
+import { execFile, execSync, exec } from 'child_process'
+import { dirname, delimiter } from 'path'
 import { promisify } from 'util'
 import { debug } from '../core/logger.js'
+import { CLI_NAME } from '../core/env.js'
 import type { CronInstallResult, CronStatus } from './types.js'
 
 const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
 
-// Comment marker to identify our cron entries
-const CRON_COMMENT_MARKER = 'antigravity-usage-wakeup'
+export const CRON_COMMENT_MARKER = 'claude-usage-wakeup'
+export const WINDOWS_TASK_NAME = 'claude-usage-wakeup'
 
-/**
- * Get PATH directories for cron environment
- * Returns directories where node and npm binaries are found
- * This makes cron jobs portable across different machines and Node.js installations
- */
+function getPlatform(platform = process.platform): NodeJS.Platform {
+  return platform
+}
+
 function getBinDirectories(): string[] {
   const dirs = new Set<string>()
-  
+
   try {
-    // Get node's bin directory from current process
-    const nodePath = process.execPath
-    const nodeDir = nodePath.substring(0, nodePath.lastIndexOf('/'))
-    if (nodeDir) {
-      dirs.add(nodeDir)
-      debug('cron-installer', `Found node bin dir: ${nodeDir}`)
-    }
+    dirs.add(dirname(process.execPath))
   } catch {
     debug('cron-installer', 'Could not determine node bin directory')
   }
-  
+
   try {
-    // Get npm global bin directory
     const npmBin = execSync('npm bin -g', {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe']
     }).trim()
     if (npmBin) {
       dirs.add(npmBin)
-      debug('cron-installer', `Found npm bin dir: ${npmBin}`)
     }
   } catch {
-    debug('cron-installer', 'Could not determine npm bin directory')
+    debug('cron-installer', 'Could not determine npm global bin directory')
   }
-  
-  // Try to get user's current PATH as fallback
-  // This helps capture paths from nvm, homebrew, etc.
+
   if (process.env.PATH) {
-    const userPaths = process.env.PATH.split(':').filter(p => {
-      // Include paths that might contain node or npm binaries
-      return p.includes('node') || p.includes('npm') || 
-             p.includes('nvm') || p.includes('.local') ||
-             p === '/usr/local/bin' || p === '/opt/homebrew/bin'
-    })
-    userPaths.forEach(p => {
-      if (p) {
+    for (const p of process.env.PATH.split(delimiter)) {
+      if (!p) continue
+      const lower = p.toLowerCase()
+      if (
+        lower.includes('node') ||
+        lower.includes('npm') ||
+        lower.includes('nvm') ||
+        lower.includes('.local') ||
+        p === '/usr/local/bin' ||
+        p === '/opt/homebrew/bin'
+      ) {
         dirs.add(p)
-        debug('cron-installer', `Added user PATH: ${p}`)
       }
-    })
+    }
   }
-  
-  // Add standard system paths (always include these)
-  dirs.add('/usr/local/bin')
-  dirs.add('/usr/bin')
-  dirs.add('/bin')
-  dirs.add('/opt/homebrew/bin') // For Apple Silicon Macs
-  
+
+  if (process.platform !== 'win32') {
+    dirs.add('/usr/local/bin')
+    dirs.add('/usr/bin')
+    dirs.add('/bin')
+    dirs.add('/opt/homebrew/bin')
+  }
+
   return Array.from(dirs)
 }
 
+export function getTriggerCommand(): string {
+  return `${CLI_NAME} wakeup trigger --scheduled`
+}
+
+export function getQuotedWindowsCommand(): string {
+  const node = process.execPath
+  const entry = process.argv[1] || CLI_NAME
+  return `"${node}" "${entry}" wakeup trigger --scheduled`
+}
+
+export interface WindowsSchedule {
+  sc: 'HOURLY' | 'DAILY' | 'WEEKLY'
+  mo?: string
+  st?: string
+  d?: string
+}
+
 /**
- * Load current crontab entries
+ * Map a 5-field cron expression onto schtasks /SC flags.
+ * Multiple daily hours use the first time; remaining times need extra tasks.
  */
+export function cronToWindowsSchedule(cronExpression: string): WindowsSchedule | null {
+  const parts = cronExpression.trim().split(/\s+/)
+  if (parts.length !== 5) return null
+
+  const [minute, hour, day, month, weekday] = parts
+  if (!/^\d+$/.test(minute)) return null
+
+  const st = `${hour.split(',')[0]?.replace('*/', '').padStart(2, '0') || '00'}:${minute.padStart(2, '0')}`
+
+  if (hour.startsWith('*/') && day === '*' && month === '*' && weekday === '*') {
+    const interval = parseInt(hour.slice(2), 10)
+    if (!Number.isFinite(interval) || interval < 1) return null
+    return { sc: 'HOURLY', mo: String(interval), st: `00:${minute.padStart(2, '0')}` }
+  }
+
+  if (day === '*' && month === '*' && weekday === '*' && /^\d+(,\d+)*$/.test(hour)) {
+    const firstHour = hour.split(',')[0]
+    return { sc: 'DAILY', st: `${firstHour.padStart(2, '0')}:${minute.padStart(2, '0')}` }
+  }
+
+  if (day === '*' && month === '*' && weekday !== '*' && /^\d+$/.test(hour)) {
+    return { sc: 'WEEKLY', st, d: weekday }
+  }
+
+  return null
+}
+
+export function buildSchtasksCreateArgs(
+  cronExpression: string,
+  taskName = WINDOWS_TASK_NAME
+): string[] {
+  const schedule = cronToWindowsSchedule(cronExpression)
+  const args = [
+    '/Create',
+    '/TN', taskName,
+    '/TR', getQuotedWindowsCommand(),
+    '/F',
+    '/RL', 'LIMITED'
+  ]
+
+  if (schedule) {
+    args.push('/SC', schedule.sc)
+    if (schedule.mo) args.push('/MO', schedule.mo)
+    if (schedule.st) args.push('/ST', schedule.st)
+    if (schedule.d) args.push('/D', schedule.d)
+  } else {
+    args.push('/SC', 'HOURLY', '/MO', '6')
+  }
+
+  return args
+}
+
 async function loadCrontab(): Promise<string[]> {
   try {
     const { stdout } = await execAsync('crontab -l 2>/dev/null || echo ""')
-    const lines = stdout.split('\n').filter(line => line.trim())
-    debug('cron-installer', `Loaded ${lines.length} crontab entries`)
-    return lines
+    return stdout.split('\n').filter(line => line.trim())
   } catch {
-    debug('cron-installer', 'No existing crontab or error loading')
     return []
   }
 }
 
-/**
- * Save crontab entries
- */
 async function saveCrontab(lines: string[]): Promise<void> {
   const content = lines.join('\n') + '\n'
-  
-  try {
-    // Write to temp file and load into crontab
-    const { exec: execCallback } = await import('child_process')
-    
-    await new Promise<void>((resolve, reject) => {
-      const proc = execCallback('crontab -', (err) => {
-        if (err) reject(err)
-        else resolve()
-      })
-      proc.stdin?.write(content)
-      proc.stdin?.end()
+
+  await new Promise<void>((resolve, reject) => {
+    const proc = exec('crontab -', err => {
+      if (err) reject(err)
+      else resolve()
     })
-    
-    debug('cron-installer', 'Saved crontab successfully')
-  } catch (err) {
-    debug('cron-installer', 'Error saving crontab:', err)
-    throw err
-  }
+    proc.stdin?.write(content)
+    proc.stdin?.end()
+  })
 }
 
-/**
- * Remove all antigravity-usage-wakeup entries from crontab lines
- */
 function removeWakeupEntries(lines: string[]): string[] {
-  return lines.filter(line => !line.includes(CRON_COMMENT_MARKER))
+  return lines.filter(line => !line.includes(CRON_COMMENT_MARKER) && !line.includes('antigravity-usage-wakeup'))
 }
 
-/**
- * Check if running on a supported platform
- */
-export function isCronSupported(): boolean {
-  return process.platform === 'darwin' || process.platform === 'linux'
+export function isCronSupported(platform = process.platform): boolean {
+  return platform === 'darwin' || platform === 'linux' || platform === 'win32'
 }
 
-/**
- * Install cron job for scheduled wake-up
- * @param cronExpression Cron expression (5 fields: minute hour day month weekday)
- * @returns Installation result with success status or manual instructions
- */
-export async function installCronJob(cronExpression: string): Promise<CronInstallResult> {
-  if (!isCronSupported()) {
-    return {
-      success: false,
-      error: `Cron is not supported on ${process.platform}. Windows Task Scheduler support coming soon.`,
-      manualInstructions: getWindowsInstructions(cronExpression)
-    }
-  }
-  
+export function isWindows(platform = process.platform): boolean {
+  return platform === 'win32'
+}
+
+async function installUnixCronJob(cronExpression: string): Promise<CronInstallResult> {
   try {
-    // Get PATH directories - auto-detected from current environment
-    // This makes the cron job portable across different machines and Node.js installations
     const binDirs = getBinDirectories()
     const pathValue = binDirs.join(':')
-    
-    // Load existing crontab
     const lines = await loadCrontab()
-    
-    // Remove any existing antigravity-usage entries (both PATH and job lines)
     const filteredLines = removeWakeupEntries(lines)
-    
-    // Add PATH if not already set for other cron jobs
+
     const hasPath = filteredLines.some(line => line.startsWith('PATH='))
     if (!hasPath) {
       filteredLines.unshift(`PATH=${pathValue}`)
     }
-    
-    // Create new cron entry with simple, portable command
-    // Using 'antigravity-usage' instead of absolute paths makes it work anywhere
-    const cronLine = `${cronExpression} antigravity-usage wakeup trigger --scheduled # ${CRON_COMMENT_MARKER}`
-    
-    // Add new entry
+
+    const cronLine = `${cronExpression} ${getTriggerCommand()} # ${CRON_COMMENT_MARKER}`
     filteredLines.push(cronLine)
-    
-    // Save crontab
     await saveCrontab(filteredLines)
-    
+
     debug('cron-installer', `Installed cron job: ${cronLine}`)
-    debug('cron-installer', `Using PATH: ${pathValue}`)
-    
-    return {
-      success: true,
-      cronExpression
-    }
+    return { success: true, cronExpression }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err)
-    debug('cron-installer', `Failed to install cron job: ${errorMessage}`)
-    
     return {
       success: false,
       error: errorMessage,
@@ -189,33 +204,60 @@ export async function installCronJob(cronExpression: string): Promise<CronInstal
   }
 }
 
-/**
- * Uninstall cron job
- * @returns true if successful, false otherwise
- */
-export async function uninstallCronJob(): Promise<boolean> {
+async function installWindowsTask(cronExpression: string): Promise<CronInstallResult> {
+  try {
+    const args = buildSchtasksCreateArgs(cronExpression)
+    await execFileAsync('schtasks', args, { windowsHide: true })
+    debug('cron-installer', `Installed Windows task ${WINDOWS_TASK_NAME}`)
+    return { success: true, cronExpression }
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    return {
+      success: false,
+      error: errorMessage,
+      manualInstructions: getWindowsInstructions(cronExpression)
+    }
+  }
+}
+
+export async function installCronJob(cronExpression: string): Promise<CronInstallResult> {
   if (!isCronSupported()) {
-    debug('cron-installer', 'Cron not supported on this platform')
+    return {
+      success: false,
+      error: `Scheduler is not supported on ${getPlatform()}.`,
+      manualInstructions: getWindowsInstructions(cronExpression)
+    }
+  }
+
+  if (isWindows()) {
+    return installWindowsTask(cronExpression)
+  }
+
+  return installUnixCronJob(cronExpression)
+}
+
+export async function uninstallCronJob(): Promise<boolean> {
+  if (isWindows()) {
+    try {
+      await execFileAsync('schtasks', ['/Delete', '/TN', WINDOWS_TASK_NAME, '/F'], { windowsHide: true })
+      return true
+    } catch (err) {
+      debug('cron-installer', 'Failed to uninstall Windows task:', err)
+      return false
+    }
+  }
+
+  if (!isCronSupported()) {
     return false
   }
-  
+
   try {
-    // Load existing crontab
     const lines = await loadCrontab()
-    
-    // Remove our entries
     const filteredLines = removeWakeupEntries(lines)
-    
-    // If nothing changed, already uninstalled
     if (filteredLines.length === lines.length) {
-      debug('cron-installer', 'No cron job found to uninstall')
       return true
     }
-    
-    // Save updated crontab
     await saveCrontab(filteredLines)
-    
-    debug('cron-installer', 'Uninstalled cron job successfully')
     return true
   } catch (err) {
     debug('cron-installer', 'Failed to uninstall cron job:', err)
@@ -223,42 +265,45 @@ export async function uninstallCronJob(): Promise<boolean> {
   }
 }
 
-/**
- * Check if cron job is installed
- */
 export async function isCronJobInstalled(): Promise<boolean> {
-  if (!isCronSupported()) {
-    return false
-  }
-  
-  try {
-    const lines = await loadCrontab()
-    return lines.some(line => line.includes(CRON_COMMENT_MARKER))
-  } catch {
-    return false
-  }
+  const status = await getCronStatus()
+  return status.installed
 }
 
-/**
- * Get current cron job status
- */
 export async function getCronStatus(): Promise<CronStatus> {
+  if (isWindows()) {
+    try {
+      const { stdout } = await execFileAsync('schtasks', ['/Query', '/TN', WINDOWS_TASK_NAME, '/FO', 'LIST'], {
+        windowsHide: true
+      })
+      if (stdout.toLowerCase().includes(WINDOWS_TASK_NAME.toLowerCase()) || stdout.includes('TaskName')) {
+        return {
+          installed: true,
+          cronExpression: WINDOWS_TASK_NAME,
+          nextRun: 'See Task Scheduler'
+        }
+      }
+      return { installed: false }
+    } catch {
+      return { installed: false }
+    }
+  }
+
   if (!isCronSupported()) {
     return { installed: false }
   }
-  
+
   try {
     const lines = await loadCrontab()
-    const cronLine = lines.find(line => line.includes(CRON_COMMENT_MARKER))
-    
+    const cronLine = lines.find(line => line.includes(CRON_COMMENT_MARKER) || line.includes('antigravity-usage-wakeup'))
+
     if (!cronLine) {
       return { installed: false }
     }
-    
-    // Extract cron expression from line
+
     const parts = cronLine.trim().split(/\s+/)
     const cronExpression = parts.slice(0, 5).join(' ')
-    
+
     return {
       installed: true,
       cronExpression,
@@ -269,13 +314,10 @@ export async function getCronStatus(): Promise<CronStatus> {
   }
 }
 
-/**
- * Generate manual instructions for cron setup
- */
 function getManualInstructions(cronExpression: string): string {
   const binDirs = getBinDirectories()
   const pathValue = binDirs.join(':')
-  
+
   return `
 Failed to automatically install cron job. Please add manually:
 
@@ -283,7 +325,7 @@ Failed to automatically install cron job. Please add manually:
 
 2. Add these lines:
    PATH=${pathValue}
-   ${cronExpression} antigravity-usage wakeup trigger --scheduled # ${CRON_COMMENT_MARKER}
+   ${cronExpression} ${getTriggerCommand()} # ${CRON_COMMENT_MARKER}
 
 3. Save and exit the editor
 
@@ -291,38 +333,34 @@ To verify, run: crontab -l
 `.trim()
 }
 
-/**
- * Generate instructions for Windows users
- */
-function getWindowsInstructions(cronExpression: string): string {
+export function getWindowsInstructions(cronExpression: string): string {
+  const command = getQuotedWindowsCommand()
+  const schedule = cronToWindowsSchedule(cronExpression)
+  const sc = schedule ? `/SC ${schedule.sc}${schedule.mo ? ` /MO ${schedule.mo}` : ''}${schedule.st ? ` /ST ${schedule.st}` : ''}` : '/SC HOURLY /MO 6'
+
   return `
-Windows Task Scheduler support is not yet available.
+Automatic Task Scheduler install failed or is unavailable.
 
-To set up manually using Task Scheduler:
+Create the task manually:
 
-1. Open Task Scheduler (taskschd.msc)
-2. Create a new Basic Task
-3. Set trigger: Based on your schedule (${cronExpression})
-4. Set action: Start a program
-   - Program: antigravity-usage
-   - Arguments: wakeup trigger --scheduled
-5. Save the task
+  schtasks /Create /TN "${WINDOWS_TASK_NAME}" /TR ${JSON.stringify(command)} ${sc} /F /RL LIMITED
 
-Alternatively, use Windows Subsystem for Linux (WSL) with cron.
+Or use Task Scheduler (taskschd.msc):
+1. Create a Basic Task named ${WINDOWS_TASK_NAME}
+2. Trigger: ${cronExpression}
+3. Action: Start a program
+   - Program: ${process.execPath}
+   - Arguments: "${process.argv[1] || CLI_NAME}" wakeup trigger --scheduled
 `.trim()
 }
 
-/**
- * Get human-readable description of next run
- */
 function getNextRunDescription(cronExpression: string): string {
   try {
     const parts = cronExpression.split(/\s+/)
     if (parts.length !== 5) return 'Unknown'
-    
+
     const [minute, hour] = parts
-    
-    // Interval-based
+
     if (hour.startsWith('*/')) {
       const hours = parseInt(hour.substring(2), 10)
       const now = new Date()
@@ -331,14 +369,13 @@ function getNextRunDescription(cronExpression: string): string {
       const isToday = nextHour < 24
       return isToday ? `Today around ${nextHour}:00` : 'Tomorrow'
     }
-    
-    // Specific time
+
     const hourNum = parseInt(hour.split(',')[0], 10)
     const minuteNum = parseInt(minute, 10)
     const now = new Date()
     const currentMinutes = now.getHours() * 60 + now.getMinutes()
     const targetMinutes = hourNum * 60 + minuteNum
-    
+
     if (targetMinutes > currentMinutes) {
       return `Today at ${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`
     }

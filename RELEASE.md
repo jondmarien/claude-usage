@@ -1,6 +1,6 @@
 # Release Process
 
-To update `antigravity-usage` on npm, follow these steps:
+To update `claude-usage` on npm, follow these steps:
 
 ## 1. Commit Your Changes
 Ensure all your code changes are committed to git.
