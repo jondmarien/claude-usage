@@ -93,7 +93,19 @@ export class TokenManager {
     }
 
     if (this.isTokenExpired()) {
-      await this.refreshToken()
+      try {
+        await this.refreshToken()
+      } catch (err) {
+        const isActive = !this.accountEmail || this.accountEmail === getActiveAccountEmail()
+        if (isActive) {
+          this.hydrateFromClaudeCodeFile({ allowFileTakeover: true })
+          if (this.tokens?.accessToken && !this.isTokenExpired()) {
+            this.persist()
+            return this.tokens.accessToken
+          }
+        }
+        throw err
+      }
     }
 
     return this.tokens.accessToken
@@ -182,7 +194,7 @@ export class TokenManager {
     this.hydrateFromClaudeCodeFile()
   }
 
-  private hydrateFromClaudeCodeFile(): void {
+  private hydrateFromClaudeCodeFile(options?: { allowFileTakeover?: boolean }): void {
     if (!this.tokens?.credentialsPath && this.tokens?.source !== 'claude-code') {
       return
     }
@@ -190,6 +202,28 @@ export class TokenManager {
     const discovered = discoverClaudeCodeCredentials()
     if (!discovered || discovered.source !== 'claude-code') {
       return
+    }
+
+    const sameRefresh = Boolean(
+      this.tokens.refreshToken &&
+      discovered.refreshToken &&
+      this.tokens.refreshToken === discovered.refreshToken
+    )
+    const sameAccess = Boolean(
+      this.tokens.accessToken &&
+      discovered.accessToken &&
+      this.tokens.accessToken === discovered.accessToken
+    )
+    const sameFile = Boolean(
+      this.tokens.credentialsPath &&
+      discovered.credentialsPath === this.tokens.credentialsPath
+    )
+
+    if (!sameRefresh && !sameAccess) {
+      if (!options?.allowFileTakeover || !sameFile) {
+        debug('token-manager', 'Skipping Claude Code hydrate for a different stored account')
+        return
+      }
     }
 
     this.tokens = {

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   normalizeExpiresAt,
+  toClaudeCodeExpiresAt,
   loadClaudeCredentialsFile,
   writeClaudeCodeTokens,
   discoveredToStoredTokens,
@@ -22,6 +23,11 @@ describe('normalizeExpiresAt', () => {
 
   it('returns 0 for missing values', () => {
     expect(normalizeExpiresAt(undefined)).toBe(0)
+  })
+
+  it('writes Claude Code expiresAt as epoch seconds', () => {
+    expect(toClaudeCodeExpiresAt(1_700_000_000_000)).toBe(1_700_000_000)
+    expect(toClaudeCodeExpiresAt(1_700_000_000)).toBe(1_700_000_000)
   })
 })
 
@@ -61,7 +67,18 @@ describe('Claude credentials file', () => {
     expect(loaded?.claudeAiOauth?.refreshToken).toBe('refresh-2')
     expect(loaded?.claudeAiOauth?.extraField).toBe('keep-me')
     expect(loaded?.other).toBe(true)
+    expect(loaded?.claudeAiOauth?.expiresAt).toBe(99)
     JSON.parse(readFileSync(path, 'utf-8'))
+  })
+
+  it('converts millisecond expiresAt to seconds on write-back', () => {
+    writeClaudeCodeTokens(path, {
+      accessToken: 'new',
+      refreshToken: 'refresh-2',
+      expiresAt: 1_700_000_000_000
+    })
+    const loaded = loadClaudeCredentialsFile(path)
+    expect(loaded?.claudeAiOauth?.expiresAt).toBe(1_700_000_000)
   })
 })
 

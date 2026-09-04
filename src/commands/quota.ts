@@ -179,6 +179,10 @@ async function fetchAllAccountsQuota(options: QuotaOptions): Promise<void> {
     console.log(JSON.stringify(results, null, 2))
   } else {
     renderAllQuotaTable(results, { allModels: options.allModels })
+    const active = results.find(result => result.isActive && result.snapshot)
+    if (active?.snapshot) {
+      await detectResetAndTrigger(active.snapshot)
+    }
   }
 }
 

@@ -111,10 +111,38 @@ export function cronToWindowsSchedule(cronExpression: string): WindowsSchedule |
   }
 
   if (day === '*' && month === '*' && weekday !== '*' && /^\d+$/.test(hour)) {
-    return { sc: 'WEEKLY', st, d: weekday }
+    const days = cronWeekdaysToSchtasks(weekday)
+    if (!days) return null
+    return { sc: 'WEEKLY', st, d: days }
   }
 
   return null
+}
+
+const CRON_WEEKDAY_NAMES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const
+
+/** Map cron weekday fields (0/7=Sunday) to schtasks /D names. */
+export function cronWeekdaysToSchtasks(weekday: string): string | null {
+  const parts = weekday.split(',').map(part => part.trim()).filter(Boolean)
+  if (parts.length === 0) return null
+
+  const mapped: string[] = []
+  for (const part of parts) {
+    if (/^[A-Za-z]{3}$/.test(part)) {
+      mapped.push(part.toUpperCase())
+      continue
+    }
+    const n = Number(part)
+    if (!Number.isInteger(n)) return null
+    if (n === 7) {
+      mapped.push('SUN')
+      continue
+    }
+    if (n < 0 || n > 6) return null
+    mapped.push(CRON_WEEKDAY_NAMES[n])
+  }
+
+  return mapped.join(',')
 }
 
 export function buildSchtasksCreateArgs(

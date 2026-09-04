@@ -8,7 +8,7 @@ import { debug } from '../core/logger.js'
 import { APIError, AuthenticationError, NetworkError } from '../core/errors.js'
 import type { StoredTokens } from '../quota/types.js'
 import type { TokenUsage } from '../wakeup/types.js'
-import { ANTHROPIC_VERSION, CLAUDE_OAUTH_BETA, MESSAGES_URL } from './models.js'
+import { ANTHROPIC_VERSION, CLAUDE_OAUTH_BETA, MESSAGES_URL, resolveAnthropicUrl } from './models.js'
 
 const execFileAsync = promisify(execFile)
 const REQUEST_TIMEOUT_MS = 30_000
@@ -42,10 +42,8 @@ export async function triggerViaClaudeCli(
     throw new Error('Claude Code CLI is not on PATH')
   }
 
-  const args = ['-p', prompt, '--model', modelId]
-  if (maxTokens > 0) {
-    args.push('--max-tokens', String(maxTokens))
-  }
+  const limit = maxTokens > 0 ? maxTokens : 1
+  const args = ['-p', prompt, '--model', modelId, '--max-tokens', String(limit)]
 
   debug('messages', `Triggering ${modelId} via Claude CLI`)
 
@@ -84,7 +82,7 @@ export async function triggerViaMessagesApi(
 
   let response: Response
   try {
-    response = await fetch(MESSAGES_URL, {
+    response = await fetch(resolveAnthropicUrl(MESSAGES_URL), {
       method: 'POST',
       headers,
       body: JSON.stringify({

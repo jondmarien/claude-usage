@@ -10,8 +10,10 @@ import {
   CLAUDE_CODE_CLIENT_ID,
   CLAUDE_OAUTH_BETA,
   PROFILE_URL,
-  TOKEN_URL
+  TOKEN_URL,
+  resolveAnthropicUrl
 } from './models.js'
+import { version } from '../version.js'
 
 const REQUEST_TIMEOUT_MS = 20_000
 
@@ -25,7 +27,8 @@ export async function refreshClaudeAccessToken(refreshToken: string): Promise<OA
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        'anthropic-beta': CLAUDE_OAUTH_BETA
+        'anthropic-beta': CLAUDE_OAUTH_BETA,
+        'User-Agent': `claude-usage/${version}`
       },
       body: JSON.stringify({
         grant_type: 'refresh_token',
@@ -73,13 +76,14 @@ export async function fetchClaudeProfile(accessToken: string): Promise<ClaudeUse
 
   let response: Response
   try {
-    response = await fetch(PROFILE_URL, {
+    response = await fetch(resolveAnthropicUrl(PROFILE_URL), {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: 'application/json',
         'anthropic-beta': CLAUDE_OAUTH_BETA,
-        'anthropic-version': ANTHROPIC_VERSION
+        'anthropic-version': ANTHROPIC_VERSION,
+        'User-Agent': `claude-usage/${version}`
       },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
     })

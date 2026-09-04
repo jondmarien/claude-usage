@@ -13,7 +13,7 @@ import {
   loadResetState,
   updateResetState
 } from './storage.js'
-import { getAccountManager } from '../accounts/manager.js'
+import { resolveAccounts } from './account-resolver.js'
 import { executeTrigger } from './trigger-service.js'
 import type { DetectionResult } from './types.js'
 import { DEFAULT_WAKEUP_MODELS } from '../claude/models.js'
@@ -30,8 +30,7 @@ function remainingAsPercent(value?: number): number | undefined {
   return value > 1 ? value : value * 100
 }
 
-// Cooldown between triggers for same model
-const DEFAULT_COOLDOWN_MS = 60 * 60 * 1000 // 1 hour (since we're looking at ~5h window)
+const DEFAULT_COOLDOWN_MINUTES = 10
 
 /**
  * Check if a Claude limit looks freshly reset / unused.
@@ -72,19 +71,6 @@ export function isModelUnused(model: ModelQuotaInfo): boolean {
 
   debug('reset-detector', `${model.modelId}: UNUSED - ${remaining}% remaining`)
   return true
-}
-
-/**
- * Get all valid account emails
- */
-function getAllValidAccounts(): string[] {
-  const accountManager = getAccountManager()
-  const allEmails = accountManager.getAccountEmails()
-  
-  return allEmails.filter(email => {
-    const status = accountManager.getAccountStatus(email)
-    return status === 'valid' || status === 'expired' // Expired can be refreshed
-  })
 }
 
 /**
@@ -144,7 +130,7 @@ export async function detectResetAndTrigger(snapshot: QuotaSnapshot): Promise<De
     return { triggered: false, triggeredModels: [] }
   }
 
-  const accounts = getAllValidAccounts()
+  const accounts = resolveAccounts(config.selectedAccounts)
   if (accounts.length === 0) {
     debug('reset-detector', 'No valid accounts available')
     return { triggered: false, triggeredModels: [] }
@@ -152,6 +138,7 @@ export async function detectResetAndTrigger(snapshot: QuotaSnapshot): Promise<De
 
   debug('reset-detector', `Found ${accounts.length} valid accounts`)
 
+  const cooldownMs = Math.max(1, config.resetCooldownMinutes || DEFAULT_COOLDOWN_MINUTES) * 60 * 1000
   const resetState = loadResetState()
   const now = Date.now()
   const unusedWindows: ModelQuotaInfo[] = []
@@ -164,7 +151,7 @@ export async function detectResetAndTrigger(snapshot: QuotaSnapshot): Promise<De
     const previousState = resetState[window.modelId]
     if (previousState) {
       const lastTriggered = new Date(previousState.lastTriggeredTime).getTime()
-      const cooldownRemaining = DEFAULT_COOLDOWN_MS - (now - lastTriggered)
+      const cooldownRemaining = cooldownMs - (now - lastTriggered)
       if (cooldownRemaining > 0) {
         debug('reset-detector', `${window.modelId}: In cooldown (${Math.round(cooldownRemaining / 60000)}min remaining)`)
         continue
@@ -172,7 +159,6 @@ export async function detectResetAndTrigger(snapshot: QuotaSnapshot): Promise<De
     }
 
     unusedWindows.push(window)
-    updateResetState(window.modelId, window.resetTime || new Date().toISOString())
   }
 
   const modelsToTrigger = modelsForUnusedWindows(unusedWindows, config.selectedModels)
@@ -181,11 +167,10 @@ export async function detectResetAndTrigger(snapshot: QuotaSnapshot): Promise<De
     debug('reset-detector', 'No unused windows to trigger')
     return { triggered: false, triggeredModels: [] }
   }
-  
+
   console.log(`\n🔄 Found ${modelsToTrigger.length} unused model(s): ${modelsToTrigger.join(', ')}`)
   console.log(`   Triggering for ${accounts.length} account(s)...`)
-  
-  // Trigger for ALL accounts
+
   let successCount = 0
   for (const accountEmail of accounts) {
     try {
@@ -197,7 +182,7 @@ export async function detectResetAndTrigger(snapshot: QuotaSnapshot): Promise<De
         customPrompt: config.customPrompt,
         maxOutputTokens: config.maxOutputTokens
       })
-      
+
       const modelSuccess = result.results.filter(r => r.success).length
       console.log(`   ✅ ${accountEmail}: ${modelSuccess}/${modelsToTrigger.length} succeeded`)
       if (modelSuccess > 0) successCount++
@@ -206,12 +191,18 @@ export async function detectResetAndTrigger(snapshot: QuotaSnapshot): Promise<De
       debug('reset-detector', `Trigger failed for ${accountEmail}:`, err)
     }
   }
-  
+
+  if (successCount > 0) {
+    for (const window of unusedWindows) {
+      updateResetState(window.modelId, window.resetTime || new Date().toISOString())
+    }
+  }
+
   console.log(`\n📊 Wake-up complete: ${successCount}/${accounts.length} accounts triggered\n`)
-  
-  return { 
-    triggered: true, 
-    triggeredModels: modelsToTrigger 
+
+  return {
+    triggered: successCount > 0,
+    triggeredModels: modelsToTrigger
   }
 }
 

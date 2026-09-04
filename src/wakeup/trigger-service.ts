@@ -48,11 +48,13 @@ export async function executeTrigger(options: TriggerOptions): Promise<TriggerRe
     return { success: false, results }
   }
 
-  const claudeCli = await resolveClaudeCliPath()
-  if (!claudeCli) {
-    try {
-      await tokenManager.getValidAccessToken()
-    } catch (err) {
+  let hasAccountToken = false
+  try {
+    await tokenManager.getValidAccessToken()
+    hasAccountToken = true
+  } catch (err) {
+    const claudeCli = await resolveClaudeCliPath()
+    if (!claudeCli) {
       let errorMessage = `Authentication failed for ${accountEmail}`
       if (err && typeof err === 'object' && 'getDetailedMessage' in err) {
         errorMessage = (err as { getDetailedMessage: () => string }).getDetailedMessage()
@@ -71,6 +73,7 @@ export async function executeTrigger(options: TriggerOptions): Promise<TriggerRe
     }
   }
 
+  const useClaudeCli = !hasAccountToken && Boolean(await resolveClaudeCliPath())
   const userPrompt = customPrompt || DEFAULT_PROMPT
   const results: ModelTriggerResult[] = []
 
@@ -79,7 +82,7 @@ export async function executeTrigger(options: TriggerOptions): Promise<TriggerRe
     const batchResults = await Promise.all(
       batch.map(modelId => triggerSingleModel(
         tokenManager,
-        Boolean(claudeCli),
+        useClaudeCli,
         modelId,
         userPrompt,
         maxOutputTokens

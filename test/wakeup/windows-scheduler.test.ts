@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   cronToWindowsSchedule,
+  cronWeekdaysToSchtasks,
   buildSchtasksCreateArgs,
   getQuotedWindowsCommand,
   isCronSupported,
@@ -42,8 +43,15 @@ describe('Windows Task Scheduler mapping', () => {
     expect(cronToWindowsSchedule('0 9 * * 1,5')).toEqual({
       sc: 'WEEKLY',
       st: '09:00',
-      d: '1,5'
+      d: 'MON,FRI'
     })
+  })
+
+  it('maps cron weekday numbers to schtasks day names', () => {
+    expect(cronWeekdaysToSchtasks('0')).toBe('SUN')
+    expect(cronWeekdaysToSchtasks('7')).toBe('SUN')
+    expect(cronWeekdaysToSchtasks('1,5')).toBe('MON,FRI')
+    expect(cronWeekdaysToSchtasks('mon,fri')).toBe('MON,FRI')
   })
 
   it('returns null for invalid cron', () => {

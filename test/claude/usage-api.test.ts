@@ -37,6 +37,16 @@ describe('parseOauthUsageSnapshot', () => {
     expect(snapshot.models[2].modelId).toBe('weekly-sonnet')
   })
 
+  it('falls back to flat windows when limits cannot be parsed', () => {
+    const snapshot = parseOauthUsageSnapshot({
+      limits: [{ kind: 'unknown' }],
+      five_hour: { utilization: 20, resets_at: '2026-09-04T12:00:00Z' }
+    })
+    expect(snapshot.models).toHaveLength(1)
+    expect(snapshot.models[0].modelId).toBe('session')
+    expect(snapshot.models[0].remainingPercentage).toBeCloseTo(0.8)
+  })
+
   it('skips null windows', () => {
     const snapshot = parseOauthUsageSnapshot({
       five_hour: null,

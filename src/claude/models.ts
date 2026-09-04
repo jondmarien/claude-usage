@@ -43,6 +43,25 @@ export const PROFILE_URL = 'https://api.anthropic.com/api/oauth/profile'
 export const TOKEN_URL = 'https://platform.claude.com/v1/oauth/token'
 export const MESSAGES_URL = 'https://api.anthropic.com/v1/messages'
 
+export function getAnthropicApiBase(): string {
+  const override = process.env.ANTHROPIC_BASE_URL?.trim()
+  return (override || 'https://api.anthropic.com').replace(/\/$/, '')
+}
+
+export function resolveAnthropicUrl(defaultUrl: string): string {
+  const override = process.env.ANTHROPIC_BASE_URL?.trim()
+  if (!override) {
+    return defaultUrl
+  }
+
+  try {
+    const path = new URL(defaultUrl).pathname
+    return `${override.replace(/\/$/, '')}${path}`
+  } catch {
+    return defaultUrl
+  }
+}
+
 export function isLegacyAntigravityModel(modelId: string): boolean {
   const id = modelId.toLowerCase()
   return id.includes('gemini') || id.includes('antigravity')

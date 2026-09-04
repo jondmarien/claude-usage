@@ -8,7 +8,7 @@
 import { debug } from '../core/logger.js'
 import { APIError, AuthenticationError, NetworkError, RateLimitError } from '../core/errors.js'
 import type { ModelQuotaInfo, PromptCreditsInfo, QuotaSnapshot } from '../quota/types.js'
-import { ANTHROPIC_VERSION, CLAUDE_OAUTH_BETA, USAGE_URL } from './models.js'
+import { ANTHROPIC_VERSION, CLAUDE_OAUTH_BETA, USAGE_URL, resolveAnthropicUrl } from './models.js'
 import { version } from '../version.js'
 
 interface UsageWindow {
@@ -51,7 +51,7 @@ const REQUEST_TIMEOUT_MS = 20_000
 export async function fetchOauthUsage(accessToken: string): Promise<OauthUsageResponse> {
   let response: Response
   try {
-    response = await fetch(USAGE_URL, {
+    response = await fetch(resolveAnthropicUrl(USAGE_URL), {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -106,7 +106,9 @@ export function parseOauthUsageSnapshot(
       const parsed = structuredLimitToModel(limit)
       if (parsed) models.push(parsed)
     }
-  } else {
+  }
+
+  if (models.length === 0) {
     pushWindow(models, 'session', 'Session', response.five_hour, 'session')
     pushWindow(models, 'weekly', 'Week (all models)', response.seven_day, 'weekly')
     pushWindow(models, 'weekly-sonnet', 'Week (Sonnet)', response.seven_day_sonnet, 'weekly_scoped')

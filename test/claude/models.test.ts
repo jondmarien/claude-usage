@@ -4,7 +4,9 @@ import {
   CLAUDE_MODEL_OPTIONS,
   isLegacyAntigravityModel,
   isOutdatedClaudeModel,
-  migrateWakeupModels
+  migrateWakeupModels,
+  resolveAnthropicUrl,
+  USAGE_URL
 } from '../../src/claude/models.js'
 
 describe('current Claude model IDs', () => {
@@ -33,5 +35,19 @@ describe('current Claude model IDs', () => {
 
   it('falls back to defaults when only leftover models remain', () => {
     expect(migrateWakeupModels(['gemini-3-pro-low'])).toEqual(['claude-haiku-4-5', 'claude-sonnet-5'])
+  })
+
+  it('rewrites Anthropic API URLs when ANTHROPIC_BASE_URL is set', () => {
+    const previous = process.env.ANTHROPIC_BASE_URL
+    process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/anthropic/'
+    try {
+      expect(resolveAnthropicUrl(USAGE_URL)).toBe('https://proxy.example/anthropic/api/oauth/usage')
+    } finally {
+      if (previous === undefined) {
+        delete process.env.ANTHROPIC_BASE_URL
+      } else {
+        process.env.ANTHROPIC_BASE_URL = previous
+      }
+    }
   })
 })

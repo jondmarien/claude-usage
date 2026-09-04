@@ -49,6 +49,14 @@ export function normalizeExpiresAt(value: number | undefined): number {
   return value < 1e11 ? value * 1000 : value
 }
 
+/** Claude Code's .credentials.json stores expiresAt in epoch seconds. */
+export function toClaudeCodeExpiresAt(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    return value
+  }
+  return value < 1e11 ? Math.floor(value) : Math.floor(value / 1000)
+}
+
 export function loadClaudeCredentialsFile(path: string): ClaudeCredentialsFile | null {
   if (!existsSync(path)) {
     return null
@@ -146,7 +154,7 @@ export function writeClaudeCodeTokens(
       ...previous,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken || previous.refreshToken,
-      expiresAt: tokens.expiresAt
+      expiresAt: toClaudeCodeExpiresAt(tokens.expiresAt)
     }
   }
 
