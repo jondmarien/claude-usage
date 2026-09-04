@@ -12,13 +12,23 @@ import {
   isCronSupported
 } from '../../src/wakeup/cron-installer.js'
 
+function hasCrontabBinary(): boolean {
+  try {
+    execSync('command -v crontab', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] })
+    return true
+  } catch {
+    return false
+  }
+}
+
+const liveUnixCron = isCronSupported() && process.platform !== 'win32' && hasCrontabBinary()
+
 describe('Cron Installer', () => {
   // Store original crontab to restore after tests
   let originalCrontab: string | null = null
   
   beforeEach(async () => {
-    // Only run these tests on supported platforms
-    if (!isCronSupported()) {
+    if (!liveUnixCron) {
       return
     }
     
@@ -34,8 +44,7 @@ describe('Cron Installer', () => {
   })
   
   afterEach(async () => {
-    // Only run cleanup on supported platforms
-    if (!isCronSupported()) {
+    if (!liveUnixCron) {
       return
     }
     
@@ -60,15 +69,15 @@ describe('Cron Installer', () => {
       }
     })
     
-    it('should return false on Windows', () => {
+    it('should return true on Windows', () => {
       if (process.platform === 'win32') {
-        expect(isCronSupported()).toBe(false)
+        expect(isCronSupported()).toBe(true)
       }
     })
   })
   
   describe('installCronJob', () => {
-    it('should install a cron job successfully', { skip: !isCronSupported() }, async () => {
+    it('should install a cron job successfully', { skip: !liveUnixCron }, async () => {
       const cronExpression = '0 9 * * *'
       const result = await installCronJob(cronExpression)
       
@@ -77,11 +86,11 @@ describe('Cron Installer', () => {
       
       // Verify it's actually in crontab
       const crontab = execSync('crontab -l', { encoding: 'utf-8' })
-      expect(crontab).toContain('antigravity-usage wakeup trigger --scheduled')
-      expect(crontab).toContain('antigravity-usage-wakeup')
+      expect(crontab).toContain('claude-usage wakeup trigger --scheduled')
+      expect(crontab).toContain('claude-usage-wakeup')
     })
     
-    it('should add PATH to crontab', { skip: !isCronSupported() }, async () => {
+    it('should add PATH to crontab', { skip: !liveUnixCron }, async () => {
       const cronExpression = '0 9 * * *'
       await installCronJob(cronExpression)
       
@@ -89,20 +98,19 @@ describe('Cron Installer', () => {
       expect(crontab).toMatch(/^PATH=/m)
     })
     
-    it('should use simple portable command', { skip: !isCronSupported() }, async () => {
+    it('should use simple portable command', { skip: !liveUnixCron }, async () => {
       const cronExpression = '0 9 * * *'
       await installCronJob(cronExpression)
       
       const crontab = execSync('crontab -l', { encoding: 'utf-8' })
       // Should NOT contain absolute paths to node
-      expect(crontab).toContain('antigravity-usage wakeup trigger --scheduled')
-      // Should be the simple command on the scheduled line
-      const cronLine = crontab.split('\n').find(line => line.includes('antigravity-usage-wakeup'))
+      expect(crontab).toContain('claude-usage wakeup trigger --scheduled')
+      const cronLine = crontab.split('\n').find(line => line.includes('claude-usage-wakeup'))
       expect(cronLine).toBeTruthy()
-      expect(cronLine).toMatch(/^\d+ \d+ \* \* \* antigravity-usage/)
+      expect(cronLine).toMatch(/^\d+ \d+ \* \* \* claude-usage/)
     })
     
-    it('should replace existing cron job', { skip: !isCronSupported() }, async () => {
+    it('should replace existing cron job', { skip: !liveUnixCron }, async () => {
       // Install first cron job
       await installCronJob('0 9 * * *')
       
@@ -110,7 +118,7 @@ describe('Cron Installer', () => {
       await installCronJob('0 10 * * *')
       
       const crontab = execSync('crontab -l', { encoding: 'utf-8' })
-      const cronLines = crontab.split('\n').filter(line => line.includes('antigravity-usage-wakeup'))
+      const cronLines = crontab.split('\n').filter(line => line.includes('claude-usage-wakeup'))
       
       // Should only have one entry
       expect(cronLines.length).toBe(1)
@@ -118,23 +126,17 @@ describe('Cron Installer', () => {
       expect(cronLines[0]).toContain('0 10 * * *')
     })
     
-    it('should return error on Windows', async () => {
-      const originalPlatform = process.platform
-      
-      // Mock platform (note: this won't actually work in vitest, but shows intent)
+    it('should attempt Task Scheduler install on Windows', async () => {
       if (process.platform === 'win32') {
         const cronExpression = '0 9 * * *'
         const result = await installCronJob(cronExpression)
-        
-        expect(result.success).toBe(false)
-        expect(result.error).toContain('not supported')
-        expect(result.manualInstructions).toBeTruthy()
+        expect(result.success === true || Boolean(result.manualInstructions)).toBe(true)
       }
     })
   })
   
   describe('uninstallCronJob', () => {
-    it('should remove installed cron job', { skip: !isCronSupported() }, async () => {
+    it('should remove installed cron job', { skip: !liveUnixCron }, async () => {
       // First install
       await installCronJob('0 9 * * *')
       
@@ -148,19 +150,19 @@ describe('Cron Installer', () => {
       expect(installed).toBe(false)
     })
     
-    it('should return true when no job is installed', { skip: !isCronSupported() }, async () => {
+    it('should return true when no job is installed', { skip: !liveUnixCron }, async () => {
       const success = await uninstallCronJob()
       expect(success).toBe(true)
     })
   })
   
   describe('isCronJobInstalled', () => {
-    it('should return false when not installed', { skip: !isCronSupported() }, async () => {
+    it('should return false when not installed', { skip: !liveUnixCron }, async () => {
       const installed = await isCronJobInstalled()
       expect(installed).toBe(false)
     })
     
-    it('should return true when installed', { skip: !isCronSupported() }, async () => {
+    it('should return true when installed', { skip: !liveUnixCron }, async () => {
       await installCronJob('0 9 * * *')
       
       const installed = await isCronJobInstalled()
@@ -169,12 +171,12 @@ describe('Cron Installer', () => {
   })
   
   describe('getCronStatus', () => {
-    it('should return not installed status', { skip: !isCronSupported() }, async () => {
+    it('should return not installed status', { skip: !liveUnixCron }, async () => {
       const status = await getCronStatus()
       expect(status.installed).toBe(false)
     })
     
-    it('should return installed status with details', { skip: !isCronSupported() }, async () => {
+    it('should return installed status with details', { skip: !liveUnixCron }, async () => {
       const cronExpression = '30 14 * * *'
       await installCronJob(cronExpression)
       
@@ -186,7 +188,7 @@ describe('Cron Installer', () => {
   })
   
   describe('PATH Detection', () => {
-    it('should detect node bin directory', { skip: !isCronSupported() }, async () => {
+    it('should detect node bin directory', { skip: !liveUnixCron }, async () => {
       await installCronJob('0 9 * * *')
       
       const crontab = execSync('crontab -l', { encoding: 'utf-8' })
@@ -199,7 +201,7 @@ describe('Cron Installer', () => {
       expect(pathLine).toContain(nodeBinDir)
     })
     
-    it('should include standard paths', { skip: !isCronSupported() }, async () => {
+    it('should include standard paths', { skip: !liveUnixCron }, async () => {
       await installCronJob('0 9 * * *')
       
       const crontab = execSync('crontab -l', { encoding: 'utf-8' })
@@ -210,7 +212,7 @@ describe('Cron Installer', () => {
       expect(pathLine).toContain('/bin')
     })
     
-    it('should include npm global bin on macOS/Linux', { skip: !isCronSupported() }, async () => {
+    it('should include npm global bin on macOS/Linux', { skip: !liveUnixCron }, async () => {
       await installCronJob('0 9 * * *')
       
       try {

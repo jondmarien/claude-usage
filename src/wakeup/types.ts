@@ -3,6 +3,8 @@
  * Types for schedule configuration, trigger history, and reset state
  */
 
+import { DEFAULT_WAKEUP_MODELS } from '../claude/models.js'
+
 // ============================================================================
 // Schedule Configuration
 // ============================================================================
@@ -45,16 +47,14 @@ export type ScheduleMode = 'interval' | 'daily' | 'weekly' | 'custom'
 
 /**
  * Default configuration
- * 
- * Default models trigger both Claude and Gemini families:
- * - claude-sonnet-4-5: Wakes up Claude family
- * - gemini-3-flash: Wakes up Gemini flash quota group
- * - gemini-3-pro-low: Wakes up Gemini pro quota group
+ *
+ * Cheap Haiku request starts the session window; Sonnet also touches
+ * the Sonnet-scoped weekly window on Claude Code plans.
  */
 export function getDefaultConfig(): WakeupConfig {
   return {
     enabled: false,
-    selectedModels: ['claude-sonnet-4-5', 'gemini-3-flash', 'gemini-3-pro-low'],
+    selectedModels: [...DEFAULT_WAKEUP_MODELS],
     selectedAccounts: undefined,
     customPrompt: undefined,
     maxOutputTokens: 1,               // Minimal tokens to save quota

@@ -2,13 +2,22 @@
  * Quota data types
  */
 
+export type QuotaMethod = 'cloud' | 'local' | 'auto'
+
+export type QuotaSource = 'cloud' | 'local'
+
+export type LimitWindowKind = 'session' | 'weekly' | 'weekly_scoped' | 'usage' | 'other'
+
+export type AuthSource = 'claude-code' | 'api-key' | 'oauth-token'
+
 export interface QuotaSnapshot {
   timestamp: string
-  method: 'google' | 'local'
+  method: QuotaSource
   email?: string
   planType?: string
   promptCredits?: PromptCreditsInfo
   models: ModelQuotaInfo[]
+  notes?: string[]
 }
 
 export interface ModelQuotaInfo {
@@ -19,6 +28,10 @@ export interface ModelQuotaInfo {
   resetTime?: string
   timeUntilResetMs?: number
   isAutocompleteOnly?: boolean
+  windowKind?: LimitWindowKind
+  tokensUsed?: number
+  inputTokens?: number
+  outputTokens?: number
 }
 
 export interface PromptCreditsInfo {
@@ -34,9 +47,14 @@ export interface PromptCreditsInfo {
 export interface StoredTokens {
   accessToken: string
   refreshToken: string
-  expiresAt: number // Unix timestamp in ms
+  expiresAt: number
   email?: string
   projectId?: string
+  source?: AuthSource
+  apiKey?: string
+  subscriptionType?: string
+  rateLimitTier?: string
+  credentialsPath?: string
 }
 
 /**
@@ -46,15 +64,16 @@ export interface OAuthTokenResponse {
   access_token: string
   refresh_token?: string
   expires_in: number
-  token_type: string
+  token_type?: string
   scope?: string
 }
 
 /**
- * User info from Google
+ * User info from Claude / Anthropic
  */
-export interface GoogleUserInfo {
-  email: string
+export interface ClaudeUserInfo {
+  email?: string
   name?: string
-  picture?: string
+  subscriptionType?: string
+  rateLimitTier?: string
 }

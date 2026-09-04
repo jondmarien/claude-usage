@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { getPlatform, getConfigDir, getTokensPath } from '../../src/core/env.js'
+import { getPlatform, getConfigDir, getTokensPath, APP_NAME } from '../../src/core/env.js'
 
 describe('getPlatform', () => {
   it('should return a valid platform', () => {
@@ -19,9 +19,10 @@ describe('getConfigDir', () => {
     expect(configDir.length).toBeGreaterThan(0)
   })
 
-  it('should include antigravity-usage in path', () => {
+  it('should include claude-usage in path', () => {
     const configDir = getConfigDir()
-    expect(configDir).toContain('antigravity-usage')
+    expect(configDir).toContain(APP_NAME)
+    expect(configDir).toContain('claude-usage')
   })
 })
 

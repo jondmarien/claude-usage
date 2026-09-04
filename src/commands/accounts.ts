@@ -3,8 +3,8 @@
  */
 
 import { getAccountManager } from '../accounts/index.js'
-import { startOAuthFlow } from '../google/oauth.js'
-import { getTokenManagerForAccount, resetTokenManager } from '../google/token-manager.js'
+import { loginCommand } from './login.js'
+import { getTokenManagerForAccount, resetTokenManager } from '../claude/token-manager.js'
 import { renderAccountsTable } from '../render/table.js'
 import { success, warn, error as logError, info } from '../core/logger.js'
 
@@ -30,7 +30,7 @@ export function listAccountsCommand(options: ListOptions): void {
   renderAccountsTable(summaries)
   
   if (options.refresh) {
-    info('Use `antigravity-usage quota --all --refresh` to fetch fresh quota data.')
+    info('Use `claude-usage quota --all --refresh` to fetch fresh quota data.')
   }
 }
 
@@ -38,22 +38,8 @@ export function listAccountsCommand(options: ListOptions): void {
  * Add a new account (triggers OAuth flow)
  */
 export async function addAccountCommand(): Promise<void> {
-  info('Adding a new account...')
-  
-  const result = await startOAuthFlow()
-  
-  if (result.success) {
-    success(`Account added successfully${result.email ? `: ${result.email}` : ''}!`)
-    
-    // Show updated account list
-    const manager = getAccountManager()
-    const summaries = manager.getAccountSummaries()
-    console.log('\nYour accounts:')
-    renderAccountsTable(summaries)
-  } else {
-    logError(`Failed to add account: ${result.error}`)
-    process.exit(1)
-  }
+  info('Adding a new account from Claude Code credentials...')
+  await loginCommand({})
 }
 
 /**
@@ -73,7 +59,7 @@ export function switchAccountCommand(email: string): void {
         console.log(`  - ${e}`)
       }
     } else {
-      info('\nNo accounts found. Run `antigravity-usage login` to add one.')
+      info('\nNo accounts found. Run `claude-usage login` to add one.')
     }
     
     process.exit(1)
@@ -122,7 +108,7 @@ export function removeAccountCommand(email: string, options: RemoveOptions): voi
       console.log(`\nActive account: ${active || 'none'}`)
       console.log(`Remaining accounts: ${remaining.length}`)
     } else {
-      info('\nNo accounts remaining. Run `antigravity-usage login` to add one.')
+      info('\nNo accounts remaining. Run `claude-usage login` to add one.')
     }
   } else {
     logError(`Failed to remove account: ${email}`)
@@ -163,9 +149,9 @@ export function currentAccountCommand(): void {
       for (const e of emails) {
         console.log(`  - ${e}`)
       }
-      info('\nRun `antigravity-usage accounts switch <email>` to set an active account.')
+      info('\nRun `claude-usage accounts switch <email>` to set an active account.')
     } else {
-      info('\nRun `antigravity-usage login` to add an account.')
+      info('\nRun `claude-usage login` to add an account.')
     }
   }
 }
@@ -211,7 +197,7 @@ export async function refreshAccountCommand(email: string | undefined, options: 
     
     console.log()
     if (failCount > 0) {
-      warn(`${failCount} account(s) need re-authentication. Run: antigravity-usage login`)
+      warn(`${failCount} account(s) need re-authentication. Run: claude-usage login`)
     } else {
       success(`All ${successCount} account(s) refreshed successfully!`)
     }
@@ -223,8 +209,8 @@ export async function refreshAccountCommand(email: string | undefined, options: 
   
   if (!targetEmail) {
     logError('No account specified and no active account.')
-    info('Usage: antigravity-usage accounts refresh <email>')
-    info('   or: antigravity-usage accounts refresh --all')
+    info('Usage: claude-usage accounts refresh <email>')
+    info('   or: claude-usage accounts refresh --all')
     process.exit(1)
   }
   
@@ -249,8 +235,8 @@ export async function refreshAccountCommand(email: string | undefined, options: 
   } catch (err) {
     logError(`\n❌ Failed to refresh token: ${err instanceof Error ? err.message : 'Unknown error'}`)
     info('\nThe refresh token may be expired. Please re-authenticate:')
-    info(`  antigravity-usage accounts switch ${targetEmail}`)
-    info('  antigravity-usage login')
+    info(`  claude-usage accounts switch ${targetEmail}`)
+    info('  claude-usage login')
     process.exit(1)
   }
 }
@@ -275,7 +261,7 @@ export async function accountsCommand(
     case 'switch':
       if (!args[0]) {
         logError('Please specify an account email to switch to.')
-        console.log('Usage: antigravity-usage accounts switch <email>')
+        console.log('Usage: claude-usage accounts switch <email>')
         process.exit(1)
       }
       switchAccountCommand(args[0])
@@ -284,7 +270,7 @@ export async function accountsCommand(
     case 'remove':
       if (!args[0]) {
         logError('Please specify an account email to remove.')
-        console.log('Usage: antigravity-usage accounts remove <email>')
+        console.log('Usage: claude-usage accounts remove <email>')
         process.exit(1)
       }
       removeAccountCommand(args[0], { force: options.force })

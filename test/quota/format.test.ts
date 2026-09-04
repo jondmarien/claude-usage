@@ -20,7 +20,7 @@ describe('printQuotaJson', () => {
   it('should output valid JSON', () => {
     const snapshot: QuotaSnapshot = {
       timestamp: '2026-01-14T12:00:00.000Z',
-      method: 'google',
+      method: 'cloud',
       models: []
     }
 
@@ -29,7 +29,7 @@ describe('printQuotaJson', () => {
     expect(consoleSpy).toHaveBeenCalledOnce()
     const output = consoleSpy.mock.calls[0][0]
     const parsed = JSON.parse(output as string)
-    expect(parsed.method).toBe('google')
+    expect(parsed.method).toBe('cloud')
   })
 })
 
@@ -47,7 +47,7 @@ describe('printQuotaTable', () => {
   it('should output table format', () => {
     const snapshot: QuotaSnapshot = {
       timestamp: '2026-01-14T12:00:00.000Z',
-      method: 'google',
+      method: 'cloud',
       promptCredits: {
         available: 450,
         monthly: 500,
@@ -72,7 +72,7 @@ describe('printQuotaTable', () => {
 
     // Check that some expected content is in the output
     const allOutput = consoleSpy.mock.calls.map(c => c[0]).join('\n')
-    expect(allOutput).toContain('Antigravity')
+    expect(allOutput).toContain('Claude')
     expect(allOutput).toContain('Test Model')
     expect(allOutput).toContain('85%')
   })
@@ -80,7 +80,7 @@ describe('printQuotaTable', () => {
   it('should handle exhausted models', () => {
     const snapshot: QuotaSnapshot = {
       timestamp: '2026-01-14T12:00:00.000Z',
-      method: 'google',
+      method: 'cloud',
       models: [
         {
           label: 'Exhausted Model',
@@ -99,7 +99,7 @@ describe('printQuotaTable', () => {
   it('should filter autocomplete models by default', () => {
     const snapshot: QuotaSnapshot = {
       timestamp: '2026-01-14T12:00:00.000Z',
-      method: 'google',
+      method: 'cloud',
       models: [
         {
           label: 'Coding Model',
@@ -128,7 +128,7 @@ describe('printQuotaTable', () => {
   it('should show autocomplete models when allModels option is true', () => {
     const snapshot: QuotaSnapshot = {
       timestamp: '2026-01-14T12:00:00.000Z',
-      method: 'google',
+      method: 'cloud',
       models: [
         {
           label: 'Autocomplete Model',

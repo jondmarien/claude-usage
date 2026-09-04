@@ -1,3 +1,5 @@
+> Historical Google OAuth notes for antigravity-usage. `claude-usage` imports Claude Code credentials instead. See README.md.
+
 # OAuth Credentials Update
 
 ## Changes Made

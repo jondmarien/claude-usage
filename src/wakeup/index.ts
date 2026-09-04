@@ -63,5 +63,6 @@ export {
   detectResetAndTrigger,
   isModelUnused,
   findUnusedModels,
-  hasUnusedModels
+  hasUnusedModels,
+  modelsForUnusedWindows
 } from './reset-detector.js'

@@ -7,6 +7,9 @@ import { join } from 'node:path'
 
 export type Platform = 'windows' | 'macos' | 'linux'
 
+export const APP_NAME = 'claude-usage'
+export const CLI_NAME = 'claude-usage'
+
 /**
  * Get the current platform
  */
@@ -19,22 +22,22 @@ export function getPlatform(): Platform {
 
 /**
  * Get the config directory for this application
- * - Windows: %APPDATA%/antigravity-usage
- * - macOS: ~/Library/Application Support/antigravity-usage
- * - Linux: ~/.config/antigravity-usage
+ * - Windows: %APPDATA%/claude-usage
+ * - macOS: ~/Library/Application Support/claude-usage
+ * - Linux: ~/.config/claude-usage
  */
 export function getConfigDir(): string {
   const p = getPlatform()
   const home = homedir()
-  
+
   switch (p) {
     case 'windows':
-      return join(process.env.APPDATA || join(home, 'AppData', 'Roaming'), 'antigravity-usage')
+      return join(process.env.APPDATA || join(home, 'AppData', 'Roaming'), APP_NAME)
     case 'macos':
-      return join(home, 'Library', 'Application Support', 'antigravity-usage')
+      return join(home, 'Library', 'Application Support', APP_NAME)
     case 'linux':
     default:
-      return join(process.env.XDG_CONFIG_HOME || join(home, '.config'), 'antigravity-usage')
+      return join(process.env.XDG_CONFIG_HOME || join(home, '.config'), APP_NAME)
   }
 }
 
@@ -57,7 +60,6 @@ export function getAccountsDir(): string {
  * @param email Account email address
  */
 export function getAccountDir(email: string): string {
-  // Sanitize email for filesystem (replace special chars)
   const safeName = email.replace(/[^a-zA-Z0-9@._-]/g, '_')
   return join(getAccountsDir(), safeName)
 }

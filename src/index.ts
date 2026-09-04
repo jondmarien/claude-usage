@@ -1,24 +1,25 @@
 /**
- * antigravity-usage CLI entry point
+ * claude-usage CLI entry point
  */
 
 import { Command } from 'commander'
 import { version } from './version'
 import { setDebugMode } from './core/logger.js'
+import { CLI_NAME } from './core/env.js'
 
-// Import commands
 import { loginCommand } from './commands/login.js'
 import { logoutCommand } from './commands/logout.js'
 import { statusCommand } from './commands/status.js'
 import { quotaCommand } from './commands/quota.js'
 import { doctorCommand } from './commands/doctor.js'
 import { accountsCommand } from './commands/accounts.js'
+import { wakeupCommand } from './commands/wakeup.js'
 
 const program = new Command()
 
 program
-  .name('antigravity-usage')
-  .description('CLI tool to check Antigravity model quota via Google Cloud Code API')
+  .name(CLI_NAME)
+  .description('CLI to track Claude / Claude Code usage and plan quota')
   .version(version)
   .option('--debug', 'Enable debug mode')
   .hook('preAction', (thisCommand) => {
@@ -28,23 +29,22 @@ program
     }
   })
 
-// Login command
 program
   .command('login')
-  .description('Authenticate with Google (adds a new account)')
-  .option('--no-browser', 'Do not open browser, print URL instead')
-  .option('--manual', 'Manual login flow (copy-paste URL)')
-  .option('-p, --port <port>', 'Port for OAuth callback server', parseInt)
+  .description('Import Claude Code credentials or register an API key / setup token')
+  .option('--no-browser', 'Print login instructions without assuming a browser')
+  .option('--manual', 'Print manual Claude login instructions')
+  .option('--api-key [key]', 'Store ANTHROPIC_API_KEY (or the provided key)')
+  .option('--token <token>', 'Store a Claude setup / OAuth token')
+  .option('-p, --port <port>', 'Ignored (kept for compatibility)', parseInt)
   .action(loginCommand)
 
-// Logout command
 program
   .command('logout [email]')
   .description('Remove stored credentials')
   .option('--all', 'Logout from all accounts')
   .action((email, options) => logoutCommand(options, email))
 
-// Status command
 program
   .command('status')
   .description('Show current authentication status')
@@ -52,22 +52,20 @@ program
   .option('-a, --account <email>', 'Show status for specific account')
   .action(statusCommand)
 
-// Quota command (default)
 program
   .command('quota', { isDefault: true })
-  .description('Fetch and display quota information')
+  .description('Fetch and display Claude usage / quota')
   .option('--json', 'Output as JSON')
-  .option('-m, --method <method>', 'Method to use: auto (default), local, or google', 'auto')
+  .option('-m, --method <method>', 'Method to use: auto (default), local, or cloud', 'auto')
   .option('--all', 'Show quota for all accounts')
   .option('-a, --account <email>', 'Show quota for specific account')
   .option('--refresh', 'Force refresh (ignore cache)')
-  .option('--all-models', 'Include autocomplete models (Gemini 2.5) in quota display')
+  .option('--all-models', 'Include hidden / extra windows in quota display')
   .action(quotaCommand)
 
-// Accounts command with subcommands
 const accountsCmd = program
   .command('accounts')
-  .description('Manage multiple accounts')
+  .description('Manage Claude accounts')
 
 accountsCmd
   .command('list')
@@ -77,7 +75,7 @@ accountsCmd
 
 accountsCmd
   .command('add')
-  .description('Add a new account (triggers OAuth login)')
+  .description('Import another Claude Code / API account')
   .action(() => accountsCommand('add', [], {}))
 
 accountsCmd
@@ -102,21 +100,16 @@ accountsCmd
   .option('--all', 'Refresh all accounts')
   .action((email, options) => accountsCommand('refresh', email ? [email] : [], options))
 
-// Default action for accounts command (show list)
 accountsCmd.action(() => accountsCommand('list', [], {}))
 
-// Doctor command
 program
   .command('doctor')
   .description('Run diagnostics and show configuration')
   .action(doctorCommand)
 
-// Wakeup command with subcommands
-import { wakeupCommand } from './commands/wakeup.js'
-
 const wakeupCmd = program
   .command('wakeup')
-  .description('Auto wake-up and warm up AI models')
+  .description('Auto wake-up and warm up Claude models')
 
 wakeupCmd
   .command('config')
@@ -125,18 +118,18 @@ wakeupCmd
 
 wakeupCmd
   .command('trigger')
-  .description('Execute one trigger cycle (called by cron)')
+  .description('Execute one trigger cycle (called by cron / Task Scheduler)')
   .option('--scheduled', 'Mark as scheduled trigger')
   .action((options) => wakeupCommand('trigger', [], options))
 
 wakeupCmd
   .command('install')
-  .description('Install wake-up schedule to system cron')
+  .description('Install wake-up schedule to cron or Windows Task Scheduler')
   .action(() => wakeupCommand('install', [], {}))
 
 wakeupCmd
   .command('uninstall')
-  .description('Remove wake-up schedule from system cron')
+  .description('Remove wake-up schedule from the system scheduler')
   .action(() => wakeupCommand('uninstall', [], {}))
 
 wakeupCmd
@@ -159,9 +152,6 @@ wakeupCmd
   .description('Show wake-up status and configuration')
   .action(() => wakeupCommand('status', [], {}))
 
-// Default action for wakeup command (show status)
 wakeupCmd.action(() => wakeupCommand('status', [], {}))
 
-// Parse and run
 program.parse()
-

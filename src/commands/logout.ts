@@ -3,7 +3,7 @@
  */
 
 import { getAccountManager } from '../accounts/index.js'
-import { resetTokenManager } from '../google/token-manager.js'
+import { resetTokenManager } from '../claude/token-manager.js'
 import { success, warn, info } from '../core/logger.js'
 
 interface LogoutOptions {
@@ -12,12 +12,11 @@ interface LogoutOptions {
 
 export function logoutCommand(options: LogoutOptions, email?: string): void {
   const manager = getAccountManager()
-  
-  // Logout all accounts
+
   if (options.all) {
     const count = manager.removeAllAccounts()
     resetTokenManager()
-    
+
     if (count > 0) {
       success(`Logged out of ${count} account(s).`)
     } else {
@@ -25,20 +24,18 @@ export function logoutCommand(options: LogoutOptions, email?: string): void {
     }
     return
   }
-  
-  // Logout specific account
+
   if (email) {
     if (!manager.hasAccount(email)) {
       warn(`Account '${email}' not found.`)
       return
     }
-    
+
     const removed = manager.removeAccount(email)
     resetTokenManager()
-    
+
     if (removed) {
       success(`Logged out of ${email}.`)
-      
       const remaining = manager.getAccountEmails()
       if (remaining.length > 0) {
         info(`Active account: ${manager.getActiveEmail() || 'none'}`)
@@ -48,25 +45,22 @@ export function logoutCommand(options: LogoutOptions, email?: string): void {
     }
     return
   }
-  
-  // Logout active account (default behavior)
+
   const activeEmail = manager.getActiveEmail()
-  
+
   if (!activeEmail) {
     warn('Not logged in.')
     return
   }
-  
+
   const removed = manager.removeAccount(activeEmail)
   resetTokenManager()
-  
+
   if (removed) {
     success(`Logged out of ${activeEmail}.`)
-    
     const remaining = manager.getAccountEmails()
     if (remaining.length > 0) {
-      const newActive = manager.getActiveEmail()
-      info(`Switched to: ${newActive}`)
+      info(`Switched to: ${manager.getActiveEmail()}`)
     }
   } else {
     warn('Could not delete account.')

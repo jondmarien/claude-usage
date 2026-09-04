@@ -9,17 +9,14 @@ import {
   saveWakeupConfig,
   getOrCreateConfig,
   getRecentHistory,
-  getLastTrigger,
-  clearTriggerHistory,
-  type WakeupConfig,
-  type TriggerRecord,
-  getDefaultConfig
+  getLastTrigger
 } from '../wakeup/index.js'
 import {
   installCronJob,
   uninstallCronJob,
   getCronStatus,
-  isCronSupported
+  isCronSupported,
+  WINDOWS_TASK_NAME
 } from '../wakeup/cron-installer.js'
 import {
   configToCronExpression,
@@ -36,6 +33,7 @@ import {
 } from '../wakeup/account-resolver.js'
 import { getAccountManager } from '../accounts/manager.js'
 import { debug } from '../core/logger.js'
+import { DEFAULT_WAKEUP_MODELS } from '../claude/models.js'
 
 // Subcommand type
 type WakeupSubcommand = 'config' | 'trigger' | 'install' | 'uninstall' | 'test' | 'history' | 'status'
@@ -63,31 +61,29 @@ export async function wakeupCommand(
     case 'config':
       await configureWakeup()
       break
-    
     case 'trigger':
       await runScheduledTrigger(options.scheduled ?? false)
       break
-    
     case 'install':
       await installSchedule()
       break
-    
     case 'uninstall':
       await uninstallSchedule()
       break
-    
     case 'test':
       await runTestTrigger(options)
       break
-    
     case 'history':
       await showHistory(options)
       break
-    
     case 'status':
-    default:
       await showStatus()
       break
+    default: {
+      const _exhaustive: never = subcommand
+      void _exhaustive
+      await showStatus()
+    }
   }
 }
 
@@ -107,7 +103,7 @@ async function configureWakeup(): Promise<void> {
   
   if (accounts.length === 0) {
     console.log('❌ No accounts available. Please login first:')
-    console.log('   antigravity-usage login\n')
+    console.log('   claude-usage login\n')
     return
   }
   
@@ -195,12 +191,9 @@ async function configureWakeup(): Promise<void> {
     config.resetCooldownMinutes = resetCooldown
   }
   
-  // Step 4: Models - Use default models that cover both families
-  // claude-sonnet-4-5 triggers Claude family
-  // gemini-3-flash and gemini-3-pro-low trigger both Gemini quota groups
-  config.selectedModels = ['claude-sonnet-4-5', 'gemini-3-flash', 'gemini-3-pro-low']
-  console.log('\n   📦 Models: claude-sonnet-4-5, gemini-3-flash, gemini-3-pro-low')
-  console.log('      (Triggers both Claude and Gemini families)')
+  config.selectedModels = [...DEFAULT_WAKEUP_MODELS]
+  console.log(`\n   📦 Models: ${DEFAULT_WAKEUP_MODELS.join(', ')}`)
+  console.log('      (Haiku is the cheap session wake; Sonnet 5 also hits the Sonnet weekly window)')
   
   // Step 5: Select accounts
   if (accounts.length > 1) {
@@ -251,7 +244,9 @@ async function configureWakeup(): Promise<void> {
     const { installNow } = await inquirer.prompt([{
       type: 'confirm',
       name: 'installNow',
-      message: 'Install to system cron now?',
+      message: process.platform === 'win32'
+        ? 'Install to Windows Task Scheduler now?'
+        : 'Install to system cron now?',
       default: true
     }])
     
@@ -259,7 +254,7 @@ async function configureWakeup(): Promise<void> {
       await installSchedule()
     } else {
       console.log('\n📋 To install later, run:')
-      console.log('   antigravity-usage wakeup install')
+      console.log('   claude-usage wakeup install')
     }
   }
   
@@ -310,11 +305,12 @@ async function runScheduledTrigger(isScheduled: boolean): Promise<void> {
  * Install schedule to system cron
  */
 async function installSchedule(): Promise<void> {
-  console.log('\n📅 Installing wake-up schedule to cron...\n')
+  console.log(process.platform === 'win32'
+    ? '\n📅 Installing wake-up schedule to Task Scheduler...\n'
+    : '\n📅 Installing wake-up schedule to cron...\n')
   
   if (!isCronSupported()) {
-    console.log('❌ Cron is not supported on this platform.')
-    console.log('   Windows Task Scheduler support coming soon.')
+    console.log('❌ System scheduler is not supported on this platform.')
     return
   }
   
@@ -322,13 +318,13 @@ async function installSchedule(): Promise<void> {
   
   if (!config) {
     console.log('❌ No wake-up configuration found.')
-    console.log('   Run: antigravity-usage wakeup config')
+    console.log('   Run: claude-usage wakeup config')
     return
   }
   
   if (!config.enabled) {
     console.log('❌ Wake-up is disabled. Enable it first:')
-    console.log('   antigravity-usage wakeup config')
+    console.log('   claude-usage wakeup config')
     return
   }
   
@@ -350,8 +346,8 @@ async function installSchedule(): Promise<void> {
       console.log('✅ Cron job installed successfully!')
       console.log(`   Next run: ${getNextRunEstimate(cronExpression)}`)
       console.log('')
-      console.log('   To check status: antigravity-usage wakeup status')
-      console.log('   To uninstall: antigravity-usage wakeup uninstall')
+      console.log('   To check status: claude-usage wakeup status')
+      console.log('   To uninstall: claude-usage wakeup uninstall')
     } else {
       console.log('⚠️  Automatic installation failed.')
       if (result.manualInstructions) {
@@ -370,15 +366,23 @@ async function installSchedule(): Promise<void> {
  * Uninstall schedule from system cron
  */
 async function uninstallSchedule(): Promise<void> {
-  console.log('\n🗑️  Removing wake-up schedule from cron...\n')
-  
+  console.log(process.platform === 'win32'
+    ? '\n🗑️  Removing wake-up schedule from Task Scheduler...\n'
+    : '\n🗑️  Removing wake-up schedule from cron...\n')
+
   const success = await uninstallCronJob()
-  
+
   if (success) {
-    console.log('✅ Cron job removed successfully!')
+    console.log(process.platform === 'win32'
+      ? '✅ Task Scheduler job removed successfully!'
+      : '✅ Cron job removed successfully!')
   } else {
-    console.log('⚠️  Could not remove cron job. It may not be installed.')
-    console.log('   Check your crontab: crontab -l')
+    console.log('⚠️  Could not remove the scheduled job. It may not be installed.')
+    if (process.platform === 'win32') {
+      console.log(`   Check: schtasks /Query /TN "${WINDOWS_TASK_NAME}"`)
+    } else {
+      console.log('   Check your crontab: crontab -l')
+    }
   }
   
   console.log('')
@@ -430,7 +434,7 @@ async function runTestTrigger(options: WakeupOptions = {}): Promise<void> {
       type: 'input',
       name: 'selectedModel',
       message: 'Model ID to test:',
-      default: config?.selectedModels[0] || 'claude-sonnet-4-5'
+      default: config?.selectedModels[0] || DEFAULT_WAKEUP_MODELS[0]
     }])
     modelId = selectedModel
   }
@@ -517,7 +521,7 @@ async function showStatus(): Promise<void> {
   if (!config) {
     console.log('   Status: Not configured')
     console.log('')
-    console.log('   To configure: antigravity-usage wakeup config')
+    console.log('   To configure: claude-usage wakeup config')
     console.log('')
     return
   }
@@ -540,13 +544,13 @@ async function showStatus(): Promise<void> {
   if (!config.wakeOnReset && config.enabled) {
     const cronStatus = await getCronStatus()
     if (cronStatus.installed) {
-      console.log(`   Cron: ✅ Installed (${cronStatus.cronExpression})`)
+      console.log(`   Scheduler: ✅ Installed (${cronStatus.cronExpression})`)
       if (cronStatus.nextRun) {
         console.log(`   Next run: ${cronStatus.nextRun}`)
       }
     } else {
-      console.log('   Cron: ❌ Not installed')
-      console.log('         Run: antigravity-usage wakeup install')
+      console.log('   Scheduler: ❌ Not installed')
+      console.log('         Run: claude-usage wakeup install')
     }
   }
   

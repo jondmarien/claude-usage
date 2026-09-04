@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { ModelQuotaInfo, QuotaSnapshot } from '../../src/quota/types.js'
-import { isModelUnused, findUnusedModels, hasUnusedModels } from '../../src/wakeup/reset-detector.js'
+import { isModelUnused, findUnusedModels, hasUnusedModels, modelsForUnusedWindows } from '../../src/wakeup/reset-detector.js'
 
 // Helper to create model info with specified values
 function createModelInfo(overrides: Partial<ModelQuotaInfo> = {}): ModelQuotaInfo {
@@ -22,7 +22,7 @@ function createModelInfo(overrides: Partial<ModelQuotaInfo> = {}): ModelQuotaInf
 function createSnapshot(models: ModelQuotaInfo[]): QuotaSnapshot {
   return {
     timestamp: new Date().toISOString(),
-    method: 'google',
+    method: 'cloud',
     models
   }
 }
@@ -215,6 +215,46 @@ describe('Smart Reset Detector', () => {
       expect(hasUnusedModels(snapshot)).toBe(false)
     })
     
+    it('should treat weekly unused windows as ~7 days, not 5 hours', () => {
+      const weeklyUnused = createModelInfo({
+        modelId: 'weekly',
+        windowKind: 'weekly',
+        remainingPercentage: 100,
+        timeUntilResetMs: 7 * 24 * 60 * 60 * 1000
+      })
+      const weeklyWrongWindow = createModelInfo({
+        modelId: 'weekly-soon',
+        windowKind: 'weekly',
+        remainingPercentage: 100,
+        timeUntilResetMs: 5 * 60 * 60 * 1000
+      })
+
+      expect(isModelUnused(weeklyUnused)).toBe(true)
+      expect(isModelUnused(weeklyWrongWindow)).toBe(false)
+    })
+
+    it('should ignore local usage rows', () => {
+      expect(isModelUnused(createModelInfo({
+        windowKind: 'usage',
+        remainingPercentage: 100,
+        timeUntilResetMs: 5 * 60 * 60 * 1000
+      }))).toBe(false)
+    })
+
+    it('maps unused quota windows to Claude model IDs', () => {
+      expect(modelsForUnusedWindows([
+        createModelInfo({ modelId: 'session', windowKind: 'session', label: 'Session' })
+      ])).toEqual(['claude-haiku-4-5', 'claude-sonnet-5'])
+
+      expect(modelsForUnusedWindows([
+        createModelInfo({ modelId: 'weekly-sonnet', windowKind: 'weekly_scoped', label: 'Week (Sonnet)' })
+      ], ['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5'])).toEqual(['claude-sonnet-5'])
+
+      expect(modelsForUnusedWindows([
+        createModelInfo({ modelId: 'weekly-opus', windowKind: 'weekly_scoped', label: 'Week (Opus)' })
+      ], ['claude-haiku-4-5', 'claude-sonnet-5'])).toEqual(['claude-opus-5'])
+    })
+
     it('should return true when at least one model is unused', () => {
       const snapshot = createSnapshot([
         createModelInfo({ 

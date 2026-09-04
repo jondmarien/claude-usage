@@ -4,17 +4,19 @@
 
 import { fetchQuota, type QuotaMethod } from '../quota/service.js'
 import { printQuotaTable, printQuotaJson } from '../quota/format.js'
-import { getTokenManager, getTokenManagerForAccount, resetTokenManager } from '../google/token-manager.js'
+import { getTokenManager, getTokenManagerForAccount, resetTokenManager } from '../claude/token-manager.js'
 import { getAccountManager, saveCache, isCacheValid, loadCache, getCacheAge } from '../accounts/index.js'
 import { renderAllQuotaTable, type AllAccountsQuotaResult } from '../render/index.js'
 import { error as logError, debug, info } from '../core/logger.js'
+import { CLI_NAME } from '../core/env.js'
+import { detectResetAndTrigger } from '../wakeup/reset-detector.js'
 import {
   NotLoggedInError,
   AuthenticationError,
   NetworkError,
   RateLimitError,
   APIError,
-  AntigravityNotRunningError,
+  ClaudeDataNotFoundError,
   LocalConnectionError,
   PortDetectionError,
   NoAuthMethodAvailableError
@@ -38,22 +40,19 @@ async function fetchSingleAccountQuota(options: QuotaOptions): Promise<void> {
   const accountEmail = options.account || manager.getActiveEmail()
   const originalActiveEmail = manager.getActiveEmail()
 
-  // Force google method when --account is specified
-  // (local method always uses IDE's logged-in account)
   let method = options.method || 'auto'
-  if (options.account && method !== 'google') {
-    debug('quota', `Account specified, forcing google method (local uses IDE account)`)
-    method = 'google'
+  if (options.account && method !== 'cloud') {
+    debug('quota', 'Account specified, forcing cloud method')
+    method = 'cloud'
   }
 
-  // Only check login for google method
-  if (method === 'google') {
+  if (method === 'cloud') {
     const tokenManager = options.account
       ? getTokenManagerForAccount(options.account)
       : getTokenManager()
 
     if (!tokenManager.isLoggedIn()) {
-      logError('Not logged in. Run: antigravity-usage login')
+      logError(`Not logged in. Run: ${CLI_NAME} login`)
       process.exit(1)
     }
   }
@@ -81,6 +80,7 @@ async function fetchSingleAccountQuota(options: QuotaOptions): Promise<void> {
         printQuotaJson(snapshot)
       } else {
         printQuotaTable(snapshot, { allModels: options.allModels })
+        await detectResetAndTrigger(snapshot)
       }
     } finally {
       // Always restore original active account
@@ -103,7 +103,7 @@ async function fetchAllAccountsQuota(options: QuotaOptions): Promise<void> {
   const activeEmail = manager.getActiveEmail()
 
   if (emails.length === 0) {
-    logError('No accounts found. Run: antigravity-usage login')
+    logError(`No accounts found. Run: ${CLI_NAME} login`)
     process.exit(1)
   }
 
@@ -179,6 +179,10 @@ async function fetchAllAccountsQuota(options: QuotaOptions): Promise<void> {
     console.log(JSON.stringify(results, null, 2))
   } else {
     renderAllQuotaTable(results, { allModels: options.allModels })
+    const active = results.find(result => result.isActive && result.snapshot)
+    if (active?.snapshot) {
+      await detectResetAndTrigger(active.snapshot)
+    }
   }
 }
 
@@ -195,9 +199,8 @@ async function fetchQuotaForAccount(email: string, method: QuotaMethod): Promise
   let effectiveMethod = method
 
   if (method === 'auto' || method === 'local') {
-    // Always use Google API for multi-account to avoid cache pollution
-    effectiveMethod = 'google'
-    debug('quota', `Forcing Google API for multi-account fetch (email: ${email})`)
+    effectiveMethod = 'cloud'
+    debug('quota', `Forcing cloud quota for multi-account fetch (email: ${email})`)
   }
 
   // Temporarily switch to target account
@@ -235,25 +238,24 @@ function handleQuotaError(err: unknown): never {
   }
 
   // Local method specific errors
-  if (err instanceof AntigravityNotRunningError) {
+  if (err instanceof ClaudeDataNotFoundError) {
     logError(err.message)
-    console.log('\nTip: Make sure Antigravity is running in your IDE (VSCode, etc.)')
+    console.log('\nTip: Use Claude Code once so session logs exist, or run `claude-usage login`.')
     process.exit(1)
   }
 
   if (err instanceof LocalConnectionError) {
     logError(err.message)
-    console.log('\nTip: Try restarting your IDE or the Antigravity extension.')
+    console.log('\nTip: Check ~/.claude/projects or set CLAUDE_CONFIG_DIR.')
     process.exit(1)
   }
 
   if (err instanceof PortDetectionError) {
     logError(err.message)
-    console.log('\nTip: This may happen if the Antigravity language server is still starting up.')
     process.exit(1)
   }
 
-  // Google method specific errors
+  // Cloud / auth errors
   if (err instanceof NotLoggedInError) {
     logError(err.message)
     process.exit(1)
